@@ -219,6 +219,7 @@ body{background:var(--bg);color:var(--text-primary);font-family:var(--font-sans)
         <div class="controls">
           <span id="mode-badge"></span>
           <button id="toggle-btn" class="btn" onclick="toggleEdit()"></button>
+          <button id="publish-btn" class="btn" onclick="togglePublish()" style="display:none"></button>
           <div class="week-nav">
             <button class="btn btn-sm" onclick="chgWk(-1)"><i class="ti ti-chevron-right"></i></button>
             <span class="wlabel" id="wlabel"></span>
@@ -417,6 +418,7 @@ const MONTHS_HE=['ינואר','פברואר','מרץ','אפריל','מאי','י�
 const EJS_SERVICE = 'service_dnvy6p8';
 const EJS_TEMPLATE_REQUEST = 'template_v14olsm';
 const EJS_TEMPLATE_REPLY   = 'template_gsj7m1c';
+const EJS_TEMPLATE_PUBLISH = 'template_gsj7m1c'; // אותה תבנית גנרית ששימשה לתשובות חופשה
 const EJS_PUBLIC_KEY = 'AuQvlX9lCdOzqo1F4';
 const WORKER_EMAILS = {
   amir:   'amirbe@kan.org.il',
@@ -462,8 +464,10 @@ const SUPA_SECRET = SUPA_KEY;
 const TABLE = 'schedule_data';
 const REQ_TABLE = 'vacation_requests';
 const SUBS_TABLE = 'subs';
+const PUBLISH_TABLE = 'week_publish';
 
 let editMode=false, subs=[], subsRows=[], schedule={}, constraints={}, varData={}, weekOff=0, openCell=null, openVarDay=null, currentUser=null;
+let weekPublished=true;
 let selectedWorker=null, requests=[], calYear=new Date().getFullYear(), calMonth=new Date().getMonth();
 let syncStatus='';
 let autoSaveTimer=null;
@@ -530,8 +534,10 @@ function setSyncStatus(s, msg) {
 }
 
 // ── GENERIC REST HELPER for global tables (vacation_requests, subs) ──
-async function restFetch(table, method, query, body) {
+async function restFetch(table, method, query, body, upsert) {
   const url = `${SUPA_URL}/rest/v1/${table}${query||''}`;
+  let prefer = method==='DELETE' ? 'return=minimal' : 'return=representation';
+  if (upsert) prefer = 'resolution=merge-duplicates,' + prefer;
   const res = await fetch(url, {
     method,
     cache: 'no-store',
@@ -539,7 +545,7 @@ async function restFetch(table, method, query, body) {
       'apikey': SUPA_KEY,
       'Authorization': `Bearer ${SUPA_KEY}`,
       'Content-Type': 'application/json',
-      'Prefer': method==='DELETE' ? 'return=minimal' : 'return=representation'
+      'Prefer': prefer
     },
     body: body ? JSON.stringify(body) : undefined
   });
@@ -582,6 +588,58 @@ async function insertSub(name){
 }
 async function deleteSubRow(id){
   await restFetch(SUBS_TABLE, 'DELETE', `?id=eq.${id}`);
+}
+
+// ── PUBLISH / DRAFT STATUS (per week_offset, global table) ──
+async function loadPublishStatus(){
+  try {
+    const rows = await restFetch(PUBLISH_TABLE, 'GET', `?week_offset=eq.${weekOff}&select=published`);
+    if (rows && rows.length) weekPublished = !!rows[0].published;
+    else weekPublished = weekOff <= 0; // שבועות עתידיים: טיוטה כברירת מחדל. שבוע נוכחי/עבר: גלוי כרגיל.
+  } catch(e) {
+    weekPublished = weekOff <= 0;
+  }
+}
+function canSeeDraft(){ return editMode || currentUser==='manager'; }
+async function togglePublish(){
+  const newVal = !weekPublished;
+  setSyncStatus('syncing');
+  try {
+    await restFetch(PUBLISH_TABLE, 'POST', '?on_conflict=week_offset', {week_offset:weekOff, published:newVal}, true);
+    weekPublished = newVal;
+    setSyncStatus('synced');
+  } catch(e) {
+    setSyncStatus('offline','שגיאה בפרסום — נסה שוב');
+    return;
+  }
+  updatePublishBtn();
+  render();
+  if (newVal) sendPublishEmails();
+}
+function updatePublishBtn(){
+  const btn=document.getElementById('publish-btn');
+  if(!btn)return;
+  btn.style.display = editMode ? '' : 'none';
+  if(weekPublished){
+    btn.innerHTML='<i class="ti ti-check"></i>מפורסם (לחץ להסתרה כטיוטה)';
+    btn.className='btn';
+  } else {
+    btn.innerHTML='<i class="ti ti-rocket"></i>פרסם סידור השבוע';
+    btn.className='btn btn-primary';
+  }
+}
+async function sendPublishEmails(){
+  const weekLabel = fmtWeek(getWeekStart(weekOff));
+  for (const w of WORKERS) {
+    if (!w.email) continue;
+    try {
+      await emailjs.send(EJS_SERVICE, EJS_TEMPLATE_PUBLISH, {
+        subject: `פורסם סידור עבודה לשבוע ${weekLabel}`,
+        message: `<h2 style="color:#E24B4A;">פורסם סידור עבודה</h2><p>פורסם סידור העבודה למבצעים לשבוע <strong>${weekLabel}</strong>.</p><p><a href="https://shlomoa-code.github.io/mivtzaim-v2/">לצפייה בסידור</a></p>`,
+        worker_email: w.email
+      });
+    } catch(e) { console.error('publish email failed for', w.email, e); }
+  }
 }
 
 async function supaFetch(method, body) {
@@ -672,13 +730,14 @@ async function loadFromServer() {
   }
 
   // Requests + subs are global tables — load independently of the week
-  await Promise.all([loadRequests(), loadSubs()]);
+  await Promise.all([loadRequests(), loadSubs(), loadPublishStatus()]);
   localStorage.setItem('scheduleData', JSON.stringify({schedule,constraints,varData,subs,requests}));
   setSyncStatus('synced');
 
   render();
   renderCalendar();
   updatePendingBadge();
+  updatePublishBtn();
 }
 
 async function saveToServer() {
@@ -864,7 +923,7 @@ function render(){
     document.getElementById('btn-auto').style.display='none';document.getElementById('btn-clear').style.display='none';
     document.getElementById('btn-save').style.display='none';document.getElementById('btn-screenshot').style.display='none';document.getElementById('edit-panels').style.display='none';
   }
-  renderStats();renderWarn();renderGrid();updatePendingBadge();
+  renderStats();renderWarn();renderGrid();updatePendingBadge();updatePublishBtn();
   if(editMode){renderConstraints();renderSubs();}
   renderAllConstraintsBoard();
 }
@@ -903,7 +962,14 @@ function renderWarn(){
 }
 function renderGrid(){
   const weekStart=getWeekStart(weekOff);const g=document.getElementById('main-grid');
+  if(!weekPublished && !canSeeDraft()){
+    g.innerHTML=`<div style="padding:40px 16px;text-align:center;color:var(--text-muted);font-size:14px">📋 הסידור לשבוע זה עדיין בהכנה ויפורסם בקרוב.</div>`;
+    return;
+  }
   let html=`<div class="g-head"><div class="ghc" style="border-left:none">משמרת</div>${DAYS.map(d=>`<div class="ghc">${d.sh}</div>`).join('')}</div>`;
+  if(!weekPublished && canSeeDraft()){
+    html=`<div style="padding:8px 12px;background:#FEF4E6;color:#633806;border:1px solid #EF9F27;border-radius:8px;font-size:13px;font-weight:600;margin-bottom:8px">🚧 טיוטה — עדיין לא פורסם לעובדים</div>`+html;
+  }
   SHIFTS.forEach(shift=>{
     html+=`<div class="g-row"><div class="rlbl">${shift.label}</div>`;
     DAYS.forEach((day,di)=>{
