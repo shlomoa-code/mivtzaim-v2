@@ -590,10 +590,10 @@ async function deleteSubRow(id){
   await restFetch(SUBS_TABLE, 'DELETE', `?id=eq.${id}`);
 }
 
-// ── PUBLISH / DRAFT STATUS (per week_offset, global table) ──
+// ── PUBLISH / DRAFT STATUS (per week_start date, global table) ──
 async function loadPublishStatus(){
   try {
-    const rows = await restFetch(PUBLISH_TABLE, 'GET', `?week_offset=eq.${weekOff}&select=published`);
+    const rows = await restFetch(PUBLISH_TABLE, 'GET', `?week_start=eq.${weekKey(weekOff)}&select=published`);
     if (rows && rows.length) weekPublished = !!rows[0].published;
     else weekPublished = weekOff <= 0; // שבועות עתידיים: טיוטה כברירת מחדל. שבוע נוכחי/עבר: גלוי כרגיל.
   } catch(e) {
@@ -605,7 +605,7 @@ async function togglePublish(){
   const newVal = !weekPublished;
   setSyncStatus('syncing');
   try {
-    await restFetch(PUBLISH_TABLE, 'POST', '?on_conflict=week_offset', {week_offset:weekOff, published:newVal}, true);
+    await restFetch(PUBLISH_TABLE, 'POST', '?on_conflict=week_start', {week_start:weekKey(weekOff), published:newVal}, true);
     weekPublished = newVal;
     setSyncStatus('synced');
   } catch(e) {
@@ -645,7 +645,7 @@ async function sendPublishEmails(){
 async function supaFetch(method, body) {
   const url = method==='GET' 
     ? `${SUPA_URL}/rest/v1/${TABLE}?select=*`
-    : `${SUPA_URL}/rest/v1/${TABLE}?on_conflict=week_offset`;
+    : `${SUPA_URL}/rest/v1/${TABLE}?on_conflict=week_start`;
   
   console.log('>>> supaFetch', method, 'to', url.substring(0, 50));
   
@@ -699,7 +699,7 @@ async function loadFromServer() {
 
     // Find data for current weekOff
     if (rows && rows.length > 0) {
-      const weekData = rows.find(r => r.week_offset === weekOff);
+      const weekData = rows.find(r => r.week_start === weekKey(weekOff));
 
       if (weekData && weekData.schedule_json) {
         const parsed = JSON.parse(weekData.schedule_json);
@@ -751,7 +751,7 @@ async function saveToServer() {
   });
   
   const data={
-    week_offset: weekOff,
+    week_start: weekKey(weekOff),
     schedule_json: JSON.stringify(normalizedSchedule),
     constraints_json: JSON.stringify(constraints),
     var_json: JSON.stringify(varData)
@@ -820,6 +820,7 @@ function getWeekStart(off){
   return weekStart;
 }
 function fmtWeek(s){const e=new Date(s);e.setDate(e.getDate()+6);const f=d=>d.toLocaleDateString('he-IL',{day:'numeric',month:'numeric'});return f(s)+' — '+f(e);}
+function weekKey(off){ return dateStr(getWeekStart(off)); } // מפתח יציב לפי תאריך אמיתי (לא זז עם הזמן, בניגוד ל-weekOff)
 function chgWk(d){weekOff+=d;openCell=null;openVarDay=null;updateWeekLabels();loadFromServer();}
 function workerCount(wid){
   let t=0;
