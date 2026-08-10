@@ -784,6 +784,26 @@ function getWeekStart(off){
 }
 function fmtWeek(s){const e=new Date(s);e.setDate(e.getDate()+6);const f=d=>d.toLocaleDateString('he-IL',{day:'numeric',month:'numeric'});return f(s)+' — '+f(e);}
 function weekKey(off){ return dateStr(getWeekStart(off)); } // מפתח יציב לפי תאריך אמיתי (לא זז עם הזמן, בניגוד ל-weekOff)
+let serverTimeOffsetMs = 0;
+async function syncServerTime(){
+  try{
+    const res = await fetch(SUPA_URL + '/rest/v1/', {method:'HEAD', headers:{apikey: SUPA_KEY}, cache:'no-store'});
+    const serverDateHeader = res.headers.get('date');
+    if(serverDateHeader){
+      const serverTime = new Date(serverDateHeader).getTime();
+      serverTimeOffsetMs = serverTime - Date.now();
+    }
+  }catch(e){ console.error('server time sync failed', e); }
+}
+function getTrustedNow(){ return new Date(Date.now() + serverTimeOffsetMs); }
+function constraintsDeadline(off){
+  // מועד אחרון להגשת/עריכת אילוצים לשבוע off: יום רביעי 12:00 של השבוע שלפניו
+  const d=new Date(getWeekStart(off));
+  d.setDate(d.getDate()-4);
+  d.setHours(12,0,0,0);
+  return d;
+}
+function constraintsLocked(off){ return getTrustedNow() > constraintsDeadline(off); } // שעון שרת, לא שעון המכשיר — כדי שלא ניתן יהיה לעקוף ע"י שינוי שעון מקומי
 function chgWk(d){weekOff+=d;openCell=null;openVarDay=null;updateWeekLabels();loadFromServer();}
 function workerCount(wid){
   let t=0;
@@ -1241,7 +1261,11 @@ function selectConstraintWorker(wid){constraintWorker=wid;renderMyConstraintsTab
 function renderMyPills(){
   const el=document.getElementById('my-pills-area');
   const c=constraints[ck(constraintWorker)]||{};
+  const locked=constraintsLocked(weekOff);
   let html='<div style="display:flex;flex-direction:column;gap:0.5rem">';
+  if(locked){
+    html+=`<div style="background:#FEF4E6;border:0.5px solid #EF9F27;border-radius:8px;padding:0.75rem;font-size:13px;color:#633806"><strong>⏰ המועד להגשת/עריכת אילוצים לשבוע זה עבר</strong><br/>ניתן לצפות בלבד. לשינויים יש לפנות למנהל.</div>`;
+  }
   const blocked=[], comp=[];
   SHIFTS.forEach(shift=>{
     shift.days.forEach(di=>{
@@ -1265,25 +1289,29 @@ function renderMyPills(){
   if(blocked.length===0 && comp.length===0){
     html+=`<div style="background:#E1F5EE;border:0.5px solid #5DCAA5;border-radius:8px;padding:0.75rem;font-size:13px;color:#085041"><strong>✓ זמין לכל המשמרות השבוע</strong></div>`;
   }
-  html+='<div style="margin-top:1rem;font-size:12px;color:var(--text-muted);padding:0.5rem;background:var(--surface-0);border-radius:8px">💡 לחץ על משמרת בתחתית לשינוי</div></div>';
+  html+=locked?'</div>':'<div style="margin-top:1rem;font-size:12px;color:var(--text-muted);padding:0.5rem;background:var(--surface-0);border-radius:8px">💡 לחץ על משמרת בתחתית לשינוי</div></div>';
   el.innerHTML=html;
 }
 function renderMyConstraintsPills(){
   const el=document.getElementById('my-pills-area-selector');
   const c=constraints[ck(constraintWorker)]||{};
+  const locked=constraintsLocked(weekOff);
   let html='<div class="pills">';
   SHIFTS.forEach(shift=>{
     shift.days.forEach(di=>{
       const ck2=`${shift.id}_${di}`;
       const st=c[ck2]||'ok';
       const lbl=`${DAYS[di].sh} ${shift.id==='morning'?'בוקר':shift.id==='evening'?'ערב':shift.id==='fri'?'שישי':'שבת'}`;
-      html+=`<span class="pill ${st}" onclick="toggleMyConstraint('${ck2}')" title="לחץ לשינוי">${lbl}</span>`;
+      html+=locked
+        ? `<span class="pill ${st}" style="opacity:.6;cursor:default">${lbl}</span>`
+        : `<span class="pill ${st}" onclick="toggleMyConstraint('${ck2}')" title="לחץ לשינוי">${lbl}</span>`;
     });
   });
   html+='</div>';
   el.innerHTML=html;
 }
 function toggleMyConstraint(ck2){
+  if(constraintsLocked(weekOff)){ showToast('המועד להגשת אילוצים לשבוע זה עבר'); return; }
   const k=ck(constraintWorker);
   if(!constraints[k])constraints[k]={};
   const cur=constraints[k][ck2]||'ok';
@@ -1370,6 +1398,7 @@ if ('serviceWorker' in navigator) {
 
 // ── START ──
 emailjs.init(EJS_PUBLIC_KEY);
+syncServerTime();
 checkLogin();
 // Do NOT auto-load when coming online - it overwrites manual edits
 setTimeout(()=>{const inp=document.getElementById('sub-inp');if(inp)inp.addEventListener('keydown',e=>{if(e.key==='Enter')addSub();});},500);
