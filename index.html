@@ -382,6 +382,7 @@ body{background:var(--bg);color:var(--text-primary);font-family:var(--font-sans)
 
 <script src="https://cdn.jsdelivr.net/npm/@emailjs/browser@4/dist/email.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script>
 const APP_VERSION='2026-07-29-v2-newdb'; // משתנה בכל עדכון
 // בדוק אם יש קובץ חדש יותר
@@ -460,6 +461,36 @@ async function sendReplyEmail(req,status) {
 const SUPA_URL = 'https://ycjjrtoyixvjresfqhzk.supabase.co';
 const SUPA_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InljampydG95aXh2anJlc2ZxaHprIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODUzMDMyNTIsImV4cCI6MjEwMDg3OTI1Mn0.919cxQRk1vxmrHlnUBU690y_WUQKFo3qIgT83JqLQCs';
 const SUPA_SECRET = SUPA_KEY;
+
+// ── REALTIME LIVE SYNC (mirrors tzalamim's mechanism) ──
+let sb = null;
+try { sb = supabase.createClient(SUPA_URL, SUPA_KEY); } catch(e) { console.error('supabase-js init failed', e); }
+let activeTab = 'schedule';
+let realtimeChannel = null;
+let refreshDebounce = null;
+function debouncedRefresh(){
+  clearTimeout(refreshDebounce);
+  refreshDebounce = setTimeout(()=>{ refreshAll().catch(e=>console.error(e)); }, 400);
+}
+async function refreshAll(){
+  await loadFromServer(); // מרענן סידור שבועי + אילוצים + משתנה + בקשות + ממלאי מקום + פרסום, לשבוע הנוכחי
+  if(activeTab==='manager') renderManagerTab();
+  if(activeTab==='requests') renderRequestsTab();
+  if(activeTab==='myconstraints') renderMyConstraintsTab();
+  if(activeTab==='constraints-weekly') renderConstraintsWeekly();
+}
+function setupRealtime(){
+  if(!sb) return;
+  if(realtimeChannel) sb.removeChannel(realtimeChannel);
+  realtimeChannel = sb.channel('mivtzaim-live')
+    .on('postgres_changes', {event:'*', schema:'public', table:'shift_assignments'}, debouncedRefresh)
+    .on('postgres_changes', {event:'*', schema:'public', table:'constraint_entries'}, debouncedRefresh)
+    .on('postgres_changes', {event:'*', schema:'public', table:'var_assignments'}, debouncedRefresh)
+    .on('postgres_changes', {event:'*', schema:'public', table:'vacation_requests'}, debouncedRefresh)
+    .on('postgres_changes', {event:'*', schema:'public', table:'subs'}, debouncedRefresh)
+    .on('postgres_changes', {event:'*', schema:'public', table:'week_publish'}, debouncedRefresh)
+    .subscribe();
+}
 const SHIFT_TABLE = 'shift_assignments';
 const CONS_TABLE = 'constraint_entries';
 const VAR_TABLE = 'var_assignments';
@@ -512,6 +543,7 @@ function showApp(){
   const mgrTab=document.getElementById('mgr-tab');
   if(mgrTab) mgrTab.style.display = currentUser==='manager' ? '' : 'none';
   init();
+  setupRealtime();
 }
 function showLoginScreen(){
   document.getElementById('login-screen').style.display='flex';
@@ -574,6 +606,19 @@ async function insertRequest(f, t, note){
 }
 async function patchRequestStatus(id, status){
   await restFetch(REQ_TABLE, 'PATCH', `?id=eq.${id}`, {status, decided_at: new Date().toISOString()});
+}
+async function deleteRequestRow(id){
+  await restFetch(REQ_TABLE, 'DELETE', `?id=eq.${id}`);
+}
+async function deleteRequest(id){
+  if(currentUser!=='manager'){ showToast('פעולה זו מיועדת למנהל בלבד'); return; }
+  const r=requests.find(x=>x.id===id);if(!r)return;
+  const w=WORKERS.find(x=>x.id===r.wid) || {name:r.wid};
+  if(!confirm(`למחוק לגמרי את בקשת החופש של ${w.name} (${fmtRange(r.from,r.to)})? פעולה זו לא ניתנת לביטול ולא שולחת מייל.`))return;
+  requests=requests.filter(x=>x.id!==id);
+  saveLocal();
+  renderManagerTab();updatePendingBadge();renderCalendar();
+  try{ if(typeof id==='number') await deleteRequestRow(id); }catch(e){}
 }
 
 // ── SUBSTITUTES / FREELANCERS (global table) ──
@@ -857,17 +902,18 @@ function updateWeekLabels(){
 
 function swTab(tab,el){
   if(tab==='manager' && currentUser!=='manager'){ showToast('הלשונית הזו מיועדת למנהל בלבד'); return; }
+  activeTab=tab;
   document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
   el.classList.add('active');
   ['schedule','myconstraints','constraints-weekly','requests','manager','calendar'].forEach(t=>{
     document.getElementById('tab-'+t).style.display=t===tab?'block':'none';
   });
   updateWeekLabels();
-  if(tab==='requests')renderRequestsTab();
-  if(tab==='manager')renderManagerTab();
+  if(tab==='requests'){ renderRequestsTab(); loadRequests().then(()=>{renderRequestsTab();updatePendingBadge();}); }
+  if(tab==='manager'){ loadRequests().then(()=>{renderManagerTab();updatePendingBadge();}); renderManagerTab(); }
   if(tab==='myconstraints')renderMyConstraintsTab();
   if(tab==='constraints-weekly')renderConstraintsWeekly();
-  if(tab==='calendar')renderCalendar();
+  if(tab==='calendar'){ renderCalendar(); loadRequests().then(renderCalendar); }
   if(tab==='schedule'){openCell=null;openVarDay=null;render();}
 }
 
@@ -1006,11 +1052,11 @@ function renderPopup(){
   avail.forEach(w=>{html+=`<button class="pop-opt" onclick="doAssign('${k}','${w.id}')"><span class="dot" style="background:${w.dot||'#888'}"></span>${w.name}</button>`;});
   if(blocked.length){
     html+=`<div style="font-size:11px;color:#A32D2D;margin:5px 0 2px">חסומים — שיבוץ בכוח</div>`;
-    blocked.forEach(w=>{html+=`<button class="pop-opt blocked" onclick="doAssign('${k}','${w.id}')"><span class="dot" style="background:#E24B4A"></span>${w.name}</button>`;});
+    blocked.forEach(w=>{html+=`<button class="pop-opt blocked" onclick="if(confirm('${w.name} חסום/ה למשמרת זו. לשבץ בכל זאת?'))doAssign('${k}','${w.id}')"><span class="dot" style="background:#E24B4A"></span>${w.name}</button>`;});
   }
   if(onVac.length){
-    html+=`<div style="font-size:11px;color:#0B4CB8;margin:5px 0 2px">בחופש מאושר — לא ניתן לשבץ</div>`;
-    onVac.forEach(w=>{html+=`<button class="pop-opt" disabled style="opacity:0.5;cursor:not-allowed"><span class="dot" style="background:#6DB3F2"></span>${w.name}</button>`;});
+    html+=`<div style="font-size:11px;color:#0B4CB8;margin:5px 0 2px">בחופש מאושר — שיבוץ בכוח</div>`;
+    onVac.forEach(w=>{html+=`<button class="pop-opt blocked" onclick="if(confirm('${w.name} בחופש מאושר בתאריך זה. לשבץ בכל זאת?'))doAssign('${k}','${w.id}')"><span class="dot" style="background:#6DB3F2"></span>${w.name}</button>`;});
   }
   html+=`</div>`;
   document.getElementById('cell-popup').innerHTML=html;
@@ -1062,7 +1108,7 @@ function autoFill(){
   render();
   newlyAssigned.forEach(a=>persistAssign(a.shiftId,a.di,a.wid));
 }
-function clearAll(){SHIFTS.forEach(s=>s.days.forEach(di=>{delete schedule[sk(s.id,di)];}));openCell=null;render();persistClearWeek();}
+function clearAll(){if(!confirm('למחוק את כל השיבוצים של השבוע הזה?'))return;SHIFTS.forEach(s=>s.days.forEach(di=>{delete schedule[sk(s.id,di)];}));openCell=null;render();persistClearWeek();}
 function renderConstraints(){const el=document.getElementById('constraint-editor');let html='';WORKERS.forEach(w=>{const c=constraints[ck(w.id)]||{};html+=`<div class="crow"><div class="avatar ${w.avcls}">${w.init}</div><div style="flex:1"><div style="font-size:12px;font-weight:600;margin-bottom:5px">${w.name}</div><div class="pills">`;SHIFTS.forEach(shift=>{shift.days.forEach(di=>{const ck2=`${shift.id}_${di}`;const st=c[ck2]||'ok';const lbl=`${DAYS[di].sh} ${shift.id==='morning'?'בוקר':shift.id==='evening'?'ערב':shift.id==='fri'?'שישי':'שבת'}`;html+=`<span class="pill ${st}" onclick="toggleC('${w.id}','${ck2}')">${lbl}</span>`;});});html+=`</div><div style="font-size:10px;color:var(--text-muted);margin-top:4px">לחץ לסימון/ביטול חסימה</div></div></div>`;});el.innerHTML=html;}
 function toggleC(wid,ck2){
   const k=ck(wid);if(!constraints[k])constraints[k]={};
@@ -1088,6 +1134,7 @@ async function addSub(){
 }
 async function removeSub(i){
   const row=subsRows[i];if(!row)return;
+  if(!confirm(`למחוק את ${row.name} מרשימת ממלאי המקום?`))return;
   const n=row.name;
   subsRows.splice(i,1);subs=subsRows.map(r=>r.name);
   const hadAssignments=Object.keys(schedule).some(k=>schedule[k]===n);
@@ -1165,7 +1212,7 @@ function renderManagerTab(){
   document.getElementById('pending-list').innerHTML=!pending.length?`<div class="empty-state"><i class="ti ti-check" style="font-size:22px;display:block;margin-bottom:6px;color:#0F6E56"></i>אין בקשות ממתינות</div>`:pending.map(r=>mgrCard(r,true)).join('');
   document.getElementById('history-list').innerHTML=!history.length?`<div style="font-size:12px;color:var(--text-muted)">אין היסטוריה</div>`:history.map(r=>mgrCard(r,false)).join('');
 }
-function mgrCard(r,showActions){const w=WORKERS.find(x=>x.id===r.wid);const sLbl={pending:'ממתין',approved:'אושר',rejected:'נדחה'};const sCls={pending:'status-pending',approved:'status-approved',rejected:'status-rejected'};return `<div class="mgr-req-card"><div class="mgr-req-top"><div class="avatar ${w.avcls}">${w.init}</div><span class="mgr-req-name">${w.name}</span><span style="font-size:12px;color:var(--text-muted)">${fmtRange(r.from,r.to)}</span>${!showActions?`<span class="status-pill ${sCls[r.status]}">${sLbl[r.status]}</span>`:''}</div>${r.note?`<div style="font-size:11px;color:var(--text-muted);margin-bottom:6px">${r.note}</div>`:''}${showActions?`<div class="mgr-req-actions"><button class="btn btn-approve btn-sm" onclick="decideRequest(${r.id},'approved')"><i class="ti ti-check"></i>אשר</button><button class="btn btn-reject btn-sm" onclick="decideRequest(${r.id},'rejected')"><i class="ti ti-x"></i>דחה</button></div>`:''}</div>`;}
+function mgrCard(r,showActions){const w=WORKERS.find(x=>x.id===r.wid);const sLbl={pending:'ממתין',approved:'אושר',rejected:'נדחה'};const sCls={pending:'status-pending',approved:'status-approved',rejected:'status-rejected'};return `<div class="mgr-req-card"><div class="mgr-req-top"><div class="avatar ${w.avcls}">${w.init}</div><span class="mgr-req-name">${w.name}</span><span style="font-size:12px;color:var(--text-muted)">${fmtRange(r.from,r.to)}</span>${!showActions?`<span class="status-pill ${sCls[r.status]}">${sLbl[r.status]}</span>`:''}</div>${r.note?`<div style="font-size:11px;color:var(--text-muted);margin-bottom:6px">${r.note}</div>`:''}${showActions?`<div class="mgr-req-actions"><button class="btn btn-approve btn-sm" onclick="decideRequest(${r.id},'approved')"><i class="ti ti-check"></i>אשר</button><button class="btn btn-reject btn-sm" onclick="decideRequest(${r.id},'rejected')"><i class="ti ti-x"></i>דחה</button></div>`:`<button class="btn btn-sm" style="color:var(--text-muted)" onclick="deleteRequest(${r.id})" title="מחק לצמיתות"><i class="ti ti-trash"></i></button>`}</div>`;}
 async function decideRequest(id,status){
   if(currentUser!=='manager'){ showToast('פעולה זו מיועדת למנהל בלבד'); return; }
   const r=requests.find(x=>x.id===id);if(!r)return;
