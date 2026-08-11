@@ -542,6 +542,8 @@ function showApp(){
   document.getElementById('main-app').style.display='block';
   const mgrTab=document.getElementById('mgr-tab');
   if(mgrTab) mgrTab.style.display = currentUser==='manager' ? '' : 'none';
+  const editBtn=document.getElementById('toggle-btn');
+  if(editBtn) editBtn.style.display = currentUser==='manager' ? '' : 'none';
   init();
   setupRealtime();
 }
@@ -919,6 +921,7 @@ function swTab(tab,el){
 
 // ── SCHEDULE ──
 function toggleEdit(){
+  if(currentUser!=='manager'){ showToast('עריכת הסידור מיועדת למנהל בלבד'); return; }
   if(!editMode){
     console.log('>>> Opening edit mode');
     const pw=prompt('סיסמת מנהל:');
@@ -1212,7 +1215,7 @@ function renderManagerTab(){
   document.getElementById('pending-list').innerHTML=!pending.length?`<div class="empty-state"><i class="ti ti-check" style="font-size:22px;display:block;margin-bottom:6px;color:#0F6E56"></i>אין בקשות ממתינות</div>`:pending.map(r=>mgrCard(r,true)).join('');
   document.getElementById('history-list').innerHTML=!history.length?`<div style="font-size:12px;color:var(--text-muted)">אין היסטוריה</div>`:history.map(r=>mgrCard(r,false)).join('');
 }
-function mgrCard(r,showActions){const w=WORKERS.find(x=>x.id===r.wid);const sLbl={pending:'ממתין',approved:'אושר',rejected:'נדחה'};const sCls={pending:'status-pending',approved:'status-approved',rejected:'status-rejected'};return `<div class="mgr-req-card"><div class="mgr-req-top"><div class="avatar ${w.avcls}">${w.init}</div><span class="mgr-req-name">${w.name}</span><span style="font-size:12px;color:var(--text-muted)">${fmtRange(r.from,r.to)}</span>${!showActions?`<span class="status-pill ${sCls[r.status]}">${sLbl[r.status]}</span>`:''}</div>${r.note?`<div style="font-size:11px;color:var(--text-muted);margin-bottom:6px">${r.note}</div>`:''}${showActions?`<div class="mgr-req-actions"><button class="btn btn-approve btn-sm" onclick="decideRequest(${r.id},'approved')"><i class="ti ti-check"></i>אשר</button><button class="btn btn-reject btn-sm" onclick="decideRequest(${r.id},'rejected')"><i class="ti ti-x"></i>דחה</button></div>`:`<button class="btn btn-sm" style="color:var(--text-muted)" onclick="deleteRequest(${r.id})" title="מחק לצמיתות"><i class="ti ti-trash"></i></button>`}</div>`;}
+function mgrCard(r,showActions){const w=WORKERS.find(x=>x.id===r.wid);const sLbl={pending:'ממתין',approved:'אושר',rejected:'נדחה'};const sCls={pending:'status-pending',approved:'status-approved',rejected:'status-rejected'};const idJs=typeof r.id==='number'?r.id:`'${r.id}'`;return `<div class="mgr-req-card"><div class="mgr-req-top"><div class="avatar ${w.avcls}">${w.init}</div><span class="mgr-req-name">${w.name}</span><span style="font-size:12px;color:var(--text-muted)">${fmtRange(r.from,r.to)}</span>${!showActions?`<span class="status-pill ${sCls[r.status]}">${sLbl[r.status]}</span>`:''}</div>${r.note?`<div style="font-size:11px;color:var(--text-muted);margin-bottom:6px">${r.note}</div>`:''}${typeof r.id!=='number'?`<div style="font-size:11px;color:#A32D2D;margin-bottom:6px">⚠️ בקשה זו לא סונכרנה עדיין עם השרת (נשלחה ללא חיבור) — תסונכרן אוטומטית בפעולה הבאה</div>`:''}${showActions?`<div class="mgr-req-actions"><button class="btn btn-approve btn-sm" onclick="decideRequest(${idJs},'approved')"><i class="ti ti-check"></i>אשר</button><button class="btn btn-reject btn-sm" onclick="decideRequest(${idJs},'rejected')"><i class="ti ti-x"></i>דחה</button></div>`:`<button class="btn btn-sm" style="color:var(--text-muted)" onclick="deleteRequest(${idJs})" title="מחק לצמיתות"><i class="ti ti-trash"></i></button>`}</div>`;}
 async function decideRequest(id,status){
   if(currentUser!=='manager'){ showToast('פעולה זו מיועדת למנהל בלבד'); return; }
   const r=requests.find(x=>x.id===id);if(!r)return;
@@ -1222,7 +1225,15 @@ async function decideRequest(id,status){
   r.status=status;
   setSyncStatus('syncing');
   saveLocal();
-  try{ if(typeof id==='number') await patchRequestStatus(id,status); }catch(e){setSyncStatus('offline');}
+  try{
+    if(typeof r.id==='number'){
+      await patchRequestStatus(r.id,status);
+    } else {
+      // הבקשה מעולם לא נשמרה בפועל בשרת (נשלחה בזמן ניתוק) — יוצרים אותה עכשיו בפועל, עם הסטטוס הנכון
+      const rows = await restFetch(REQ_TABLE,'POST','',{worker_id:r.wid, from_date:r.from, to_date:r.to, note:r.note, status});
+      r.id = rows[0].id;
+    }
+  }catch(e){setSyncStatus('offline');}
   await sendReplyEmail(r,status);
   showToast(status==='approved'?`✓ חופש ${w.name} אושר — מייל נשלח`:`✕ בקשת ${w.name} נדחתה — מייל נשלח`);
   setSyncStatus('synced');renderManagerTab();updatePendingBadge();renderCalendar();
