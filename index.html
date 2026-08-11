@@ -317,7 +317,7 @@ body{background:var(--bg);color:var(--text-primary);font-family:var(--font-sans)
           <span class="form-lbl" style="margin-bottom:4px">הערה</span>
           <textarea class="note-inp" id="req-note" rows="2" placeholder="סיבה / הערה (אופציונלי)"></textarea>
         </div>
-        <button class="btn btn-submit" onclick="submitRequest()"><i class="ti ti-send"></i>שלח בקשה</button>
+        <button class="btn btn-submit" id="req-submit-btn" onclick="submitRequest()"><i class="ti ti-send"></i>שלח בקשה</button>
       </div>
       <div>
         <div style="font-size:13px;font-weight:600;margin-bottom:.6rem">הבקשות שלי</div>
@@ -509,6 +509,8 @@ function logout(){
 function showApp(){
   document.getElementById('login-screen').style.display='none';
   document.getElementById('main-app').style.display='block';
+  const mgrTab=document.getElementById('mgr-tab');
+  if(mgrTab) mgrTab.style.display = currentUser==='manager' ? '' : 'none';
   init();
 }
 function showLoginScreen(){
@@ -571,7 +573,7 @@ async function insertRequest(f, t, note){
   return mapReqRow(rows[0]);
 }
 async function patchRequestStatus(id, status){
-  await restFetch(REQ_TABLE, 'PATCH', `?id=eq.${id}`, {status});
+  await restFetch(REQ_TABLE, 'PATCH', `?id=eq.${id}`, {status, decided_at: new Date().toISOString()});
 }
 
 // ── SUBSTITUTES / FREELANCERS (global table) ──
@@ -854,6 +856,7 @@ function updateWeekLabels(){
 }
 
 function swTab(tab,el){
+  if(tab==='manager' && currentUser!=='manager'){ showToast('הלשונית הזו מיועדת למנהל בלבד'); return; }
   document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
   el.classList.add('active');
   ['schedule','myconstraints','constraints-weekly','requests','manager','calendar'].forEach(t=>{
@@ -1116,6 +1119,8 @@ function renderRequestsTab(){
 function selectWorker(wid){selectedWorker=wid;renderRequestsTab();}
 async function submitRequest(){
   if(!selectedWorker)return;
+  const btn=document.getElementById('req-submit-btn');
+  if(btn && btn.disabled)return; // כבר בתהליך שליחה — מתעלמים מלחיצה כפולה
   const from=document.getElementById('req-from').value,to=document.getElementById('req-to').value,note=document.getElementById('req-note').value.trim();
   if(!from||!to)return;
 
@@ -1123,6 +1128,12 @@ async function submitRequest(){
   // Just swap if needed
   const [f, t] = from <= to ? [from, to] : [to, from];
 
+  const dup = requests.find(r=>r.wid===selectedWorker && r.status==='pending' && r.from===f && r.to===t);
+  if(dup){ showToast('כבר קיימת בקשה זהה הממתינה לאישור'); return; }
+  const overlap = requests.find(r=>r.wid===selectedWorker && r.status==='approved' && r.from<=t && f<=r.to);
+  if(overlap){ showToast(`כבר יש חופשה מאושרת בין ${fmtDate(overlap.from)} ל-${fmtDate(overlap.to)} שחופפת לתאריכים האלה`); return; }
+
+  if(btn) btn.disabled=true;
   setSyncStatus('syncing');
   try {
     const saved = await insertRequest(f, t, note);
@@ -1136,6 +1147,7 @@ async function submitRequest(){
     saveLocal();
     setSyncStatus('offline','שגיאה בשליחה — נסה שוב כשיש חיבור');
   }
+  if(btn) btn.disabled=false;
   document.getElementById('req-note').value='';
   renderMyRequests();updatePendingBadge();
 }
@@ -1155,12 +1167,16 @@ function renderManagerTab(){
 }
 function mgrCard(r,showActions){const w=WORKERS.find(x=>x.id===r.wid);const sLbl={pending:'ממתין',approved:'אושר',rejected:'נדחה'};const sCls={pending:'status-pending',approved:'status-approved',rejected:'status-rejected'};return `<div class="mgr-req-card"><div class="mgr-req-top"><div class="avatar ${w.avcls}">${w.init}</div><span class="mgr-req-name">${w.name}</span><span style="font-size:12px;color:var(--text-muted)">${fmtRange(r.from,r.to)}</span>${!showActions?`<span class="status-pill ${sCls[r.status]}">${sLbl[r.status]}</span>`:''}</div>${r.note?`<div style="font-size:11px;color:var(--text-muted);margin-bottom:6px">${r.note}</div>`:''}${showActions?`<div class="mgr-req-actions"><button class="btn btn-approve btn-sm" onclick="decideRequest(${r.id},'approved')"><i class="ti ti-check"></i>אשר</button><button class="btn btn-reject btn-sm" onclick="decideRequest(${r.id},'rejected')"><i class="ti ti-x"></i>דחה</button></div>`:''}</div>`;}
 async function decideRequest(id,status){
-  const r=requests.find(x=>x.id===id);if(!r)return;r.status=status;
+  if(currentUser!=='manager'){ showToast('פעולה זו מיועדת למנהל בלבד'); return; }
+  const r=requests.find(x=>x.id===id);if(!r)return;
+  const w=WORKERS.find(x=>x.id===r.wid) || {name:r.wid};
+  const verb = status==='approved' ? 'לאשר' : 'לדחות';
+  if(!confirm(`בטוח שברצונך ${verb} את בקשת החופש של ${w.name} (${fmtRange(r.from,r.to)})?`)) return;
+  r.status=status;
   setSyncStatus('syncing');
   saveLocal();
   try{ if(typeof id==='number') await patchRequestStatus(id,status); }catch(e){setSyncStatus('offline');}
   await sendReplyEmail(r,status);
-  const w=WORKERS.find(x=>x.id===r.wid);
   showToast(status==='approved'?`✓ חופש ${w.name} אושר — מייל נשלח`:`✕ בקשת ${w.name} נדחתה — מייל נשלח`);
   setSyncStatus('synced');renderManagerTab();updatePendingBadge();renderCalendar();
 }
