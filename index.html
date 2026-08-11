@@ -836,7 +836,11 @@ function weekKey(off){ return dateStr(getWeekStart(off)); } // מפתח יציב
 let serverTimeOffsetMs = 0;
 async function syncServerTime(){
   try{
-    const res = await fetch(SUPA_URL + '/rest/v1/', {method:'HEAD', headers:{apikey: SUPA_KEY}, cache:'no-store'});
+    const res = await fetch(SUPA_URL + '/rest/v1/week_publish?select=week_start&limit=1', {
+      method:'GET',
+      headers:{apikey: SUPA_KEY, Authorization: `Bearer ${SUPA_KEY}`},
+      cache:'no-store'
+    });
     const serverDateHeader = res.headers.get('date');
     if(serverDateHeader){
       const serverTime = new Date(serverDateHeader).getTime();
