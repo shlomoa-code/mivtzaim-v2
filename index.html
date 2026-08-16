@@ -489,6 +489,7 @@ function setupRealtime(){
     .on('postgres_changes', {event:'*', schema:'public', table:'vacation_requests'}, debouncedRefresh)
     .on('postgres_changes', {event:'*', schema:'public', table:'subs'}, debouncedRefresh)
     .on('postgres_changes', {event:'*', schema:'public', table:'week_publish'}, debouncedRefresh)
+    .on('postgres_changes', {event:'*', schema:'public', table:'sick_log'}, debouncedRefresh)
     .subscribe();
 }
 const SHIFT_TABLE = 'shift_assignments';
@@ -501,6 +502,13 @@ const SICK_TABLE = 'sick_log';
 
 let editMode=false, subs=[], subsRows=[], schedule={}, constraints={}, varData={}, weekOff=0, openCell=null, openVarDay=null, currentUser=null;
 let weekPublished=true;
+let sickLog=[];
+function addDays(dateStrVal, n){
+  const [y,m,d] = dateStrVal.split('-').map(Number);
+  const dt = new Date(y, m-1, d);
+  dt.setDate(dt.getDate()+n);
+  return dateStr(dt);
+}
 let selectedWorker=null, requests=[], calYear=new Date().getFullYear(), calMonth=new Date().getMonth();
 let syncStatus='';
 
@@ -640,6 +648,14 @@ async function deleteSubRow(id){
   await restFetch(SUBS_TABLE, 'DELETE', `?id=eq.${id}`);
 }
 
+// ── SICK LOG (global, for the vacation-style calendar view) ──
+async function loadSickLog(){
+  try {
+    const rows = await restFetch(SICK_TABLE, 'GET', '?select=*&order=id.desc');
+    sickLog = (rows||[]).map(r=>({id:r.id, weekStart:r.week_start, shiftId:r.shift_id, dayIndex:r.day_index, wid:r.worker_id, date: addDays(r.week_start, r.day_index)}));
+  } catch(e) { /* keep whatever was already loaded */ }
+}
+
 // ── PUBLISH / DRAFT STATUS (per week_start date, global table) ──
 async function loadPublishStatus(){
   try {
@@ -772,7 +788,7 @@ async function loadFromServer() {
   }
 
   // Requests + subs are global tables — load independently of the week
-  await Promise.all([loadRequests(), loadSubs(), loadPublishStatus()]);
+  await Promise.all([loadRequests(), loadSubs(), loadPublishStatus(), loadSickLog()]);
   localStorage.setItem('scheduleData', JSON.stringify({schedule,constraints,varData,subs,requests}));
   setSyncStatus('synced');
 
@@ -920,7 +936,7 @@ function swTab(tab,el){
   if(tab==='manager'){ loadRequests().then(()=>{renderManagerTab();updatePendingBadge();}); renderManagerTab(); }
   if(tab==='myconstraints')renderMyConstraintsTab();
   if(tab==='constraints-weekly')renderConstraintsWeekly();
-  if(tab==='calendar'){ renderCalendar(); loadRequests().then(renderCalendar); }
+  if(tab==='calendar'){ renderCalendar(); Promise.all([loadRequests(),loadSickLog()]).then(renderCalendar); }
   if(tab==='schedule'){openCell=null;openVarDay=null;render();}
 }
 
@@ -1032,7 +1048,16 @@ function renderGrid(){
   if(openCell)renderPopup();if(openVarDay!==null&&editMode)renderVarPopup();
 }
 function toggleVarDay(di){if(openVarDay===di){openVarDay=null;document.getElementById('cell-popup').innerHTML='';render();return;}openCell=null;openVarDay=di;render();}
-function renderVarPopup(){const di=openVarDay;const day=DAYS[di];let html=`<div class="var-popup"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.6rem"><span style="font-size:13px;font-weight:600">${day.label} — משתנה</span><button class="btn btn-sm" onclick="openVarDay=null;document.getElementById('cell-popup').innerHTML='';render()">סגור</button></div>`;WORKERS.forEach(w=>{const cur=getWorkerVarStatus(di,w.id);html+=`<div class="vw-row"><span class="vw-name"><span class="dot" style="background:${w.dot}"></span>${w.name}</span><div class="vw-btns"><button class="vw-btn cam ${cur==='cam'?'active':''}" onclick="setVarWorker(${di},'${w.id}','cam');render()">צלם</button><button class="vw-btn field ${cur==='field'?'active':''}" onclick="setVarWorker(${di},'${w.id}','field');render()">שטח</button><button class="vw-btn off ${cur==='off'?'active':''}" onclick="setVarWorker(${di},'${w.id}','off');render()">לא יוצא</button></div></div>`;});html+=`</div>`;document.getElementById('cell-popup').innerHTML=html;}
+async function markSickVar(di,wid){
+  const w = WORKERS.find(x=>x.id===wid) || {name:wid};
+  if(!confirm(`לסמן את ${w.name} כחולה/חולה ליום זה?`)) return;
+  setVarWorker(di,wid,'off');
+  render();
+  try{
+    await restFetch(SICK_TABLE,'POST','',{week_start:weekKey(weekOff), shift_id:'var', day_index:di, worker_id:wid});
+  }catch(e){ console.error('sick log failed', e); }
+}
+function renderVarPopup(){const di=openVarDay;const day=DAYS[di];let html=`<div class="var-popup"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.6rem"><span style="font-size:13px;font-weight:600">${day.label} — משתנה</span><button class="btn btn-sm" onclick="openVarDay=null;document.getElementById('cell-popup').innerHTML='';render()">סגור</button></div>`;WORKERS.forEach(w=>{const cur=getWorkerVarStatus(di,w.id);html+=`<div class="vw-row"><span class="vw-name"><span class="dot" style="background:${w.dot}"></span>${w.name}</span><div class="vw-btns"><button class="vw-btn cam ${cur==='cam'?'active':''}" onclick="setVarWorker(${di},'${w.id}','cam');render()">צלם</button><button class="vw-btn field ${cur==='field'?'active':''}" onclick="setVarWorker(${di},'${w.id}','field');render()">שטח</button><button class="vw-btn off ${cur==='off'?'active':''}" onclick="setVarWorker(${di},'${w.id}','off');render()">לא יוצא</button><button class="vw-btn" style="color:#6D28D9;border-color:#C9A8ED" onclick="markSickVar(${di},'${w.id}')">🤒 חולה</button></div></div>`;});html+=`</div>`;document.getElementById('cell-popup').innerHTML=html;}
 function togglePopup(sid,di,k){if(openCell&&openCell.k===k){openCell=null;document.getElementById('cell-popup').innerHTML='';render();return;}openVarDay=null;openCell={sid,di,k};render();}
 function renderPopup(){
   if(!openCell)return;
@@ -1317,7 +1342,10 @@ function renderCalendar(){
       else if(w?.id==='gal')bg='background:#A8EDD1;';
     }else if(uniqueVacs.length>1)bg='background:linear-gradient(135deg,#C8E0F7 50%,#A8EDD1 50%);';
     const tags=uniqueVacs.map(v=>{const w=WORKERS.find(x=>x.id===v.wid);return `<div class="vac-tag-cal ${w?.calCls||''}">${w?.name||v.wid} — חופש</div>`;}).join('');
-    html+=`<div class="cal-cell${isToday?' today':''}" style="${bg}"><div class="day-num">${d}</div>${tags}</div>`;
+    const sicksToday=sickLog.filter(s=>s.date===ds);
+    const uniqueSicks=[];const seenSickWids=new Set();sicksToday.forEach(s=>{if(!seenSickWids.has(s.wid)){uniqueSicks.push(s);seenSickWids.add(s.wid);}});
+    const sickTags=uniqueSicks.map(s=>{const w=WORKERS.find(x=>x.id===s.wid);return `<div class="vac-tag-cal" style="background:#F1E6FB;color:#6D28D9">🤒 ${w?.name||s.wid} — מחלה</div>`;}).join('');
+    html+=`<div class="cal-cell${isToday?' today':''}" style="${bg}"><div class="day-num">${d}</div>${tags}${sickTags}</div>`;
   }
   grid.innerHTML=html;
 }
