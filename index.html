@@ -890,6 +890,18 @@ function workerCount(wid){
     const entries=getVarDay(di);
     if(entries.find(e=>e.wid===wid)) t++;
   });
+  // מחלה וחופש נספרים כמשמרת (לא כחוסר) — יום אחד לכל היותר לכל יום בשבוע
+  const weekStart=getWeekStart(weekOff);
+  const curWeekKey=weekKey(weekOff);
+  const coveredDays=new Set();
+  sickLog.forEach(s=>{ if(s.wid===wid && s.weekStart===curWeekKey) coveredDays.add(s.dayIndex); });
+  DAYS.forEach((day,di)=>{
+    const currentDate=new Date(weekStart.getFullYear(),weekStart.getMonth(),weekStart.getDate()+di);
+    const ds=dateStr(currentDate);
+    const onVac=requests.some(r=>r.wid===wid&&r.status==='approved'&&ds>=r.from&&ds<=r.to);
+    if(onVac) coveredDays.add(di);
+  });
+  t+=coveredDays.size;
   return t;
 }
 function dateStr(d){
