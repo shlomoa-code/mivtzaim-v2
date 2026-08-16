@@ -497,6 +497,7 @@ const VAR_TABLE = 'var_assignments';
 const REQ_TABLE = 'vacation_requests';
 const SUBS_TABLE = 'subs';
 const PUBLISH_TABLE = 'week_publish';
+const SICK_TABLE = 'sick_log';
 
 let editMode=false, subs=[], subsRows=[], schedule={}, constraints={}, varData={}, weekOff=0, openCell=null, openVarDay=null, currentUser=null;
 let weekPublished=true;
@@ -1056,6 +1057,10 @@ function renderPopup(){
     }
   });
   let html=`<div class="popup-box"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px"><span class="pop-title" style="margin:0">${day.label} — ${shift.label}</span><button class="btn btn-sm" onclick="openCell=null;document.getElementById('cell-popup').innerHTML='';render()">סגור</button></div>`;
+  if(schedule[k]){
+    const curW = WORKERS.find(x=>x.id===schedule[k]) || {name:schedule[k]};
+    html += `<button class="pop-opt" style="background:#F1E6FB;color:#6D28D9;border-color:#C9A8ED;margin-bottom:8px" onclick="markSick('${k}')">🤒 סמן מחלה עבור ${curW.name} ובחר מחליף</button>`;
+  }
   avail.forEach(w=>{html+=`<button class="pop-opt" onclick="doAssign('${k}','${w.id}')"><span class="dot" style="background:${w.dot||'#888'}"></span>${w.name}</button>`;});
   if(blocked.length){
     html+=`<div style="font-size:11px;color:#A32D2D;margin:5px 0 2px">חסומים — שיבוץ בכוח</div>`;
@@ -1067,6 +1072,20 @@ function renderPopup(){
   }
   html+=`</div>`;
   document.getElementById('cell-popup').innerHTML=html;
+}
+async function markSick(k){
+  const wid = schedule[k];
+  if(!wid) return;
+  const w = WORKERS.find(x=>x.id===wid) || {name:wid};
+  if(!confirm(`לסמן את ${w.name} כחולה/חולה למשמרת זו ולבחור מחליף?`)) return;
+  const parts=k.split('_'); // weekOff_shiftId_dayIndex
+  const shiftId=parts[1], dayIndex=parseInt(parts[2]);
+  delete schedule[k];
+  render();
+  persistUnassign(shiftId,dayIndex);
+  try{
+    await restFetch(SICK_TABLE,'POST','',{week_start:weekKey(weekOff), shift_id:shiftId, day_index:dayIndex, worker_id:wid});
+  }catch(e){ console.error('sick log failed', e); }
 }
 function doAssign(k,wid){
   const sid=openCell?openCell.sid:null, di=openCell?openCell.di:null;
