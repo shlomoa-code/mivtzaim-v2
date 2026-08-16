@@ -398,7 +398,7 @@ window.addEventListener('load',()=>{
 });
 const WORKERS=[
   {id:'amir',  name:'אמיר',   email:'amirbe@kan.org.il',  acls:'a-amir',  avcls:'av-amir',  dot:'#378ADD',init:'אמ',calCls:'vt-amir'},
-  {id:'toujan',name:"תוג'אן", email:'tojanma@kan.org.il', acls:'a-toujan',avcls:'av-toujan',dot:'#EF9F27',init:'תו',calCls:'vt-toujan'},
+  {id:'toujan',name:"תוג'אן", email:'tojanma@kan.org.il', acls:'a-toujan',avcls:'av-toujan',dot:'#EF9F27',init:'תו',calCls:'vt-toujan', weekAnchor:'sat'},
   {id:'gal',   name:'גל',     email:'galv@kan.org.il',    acls:'a-gal',   avcls:'av-gal',   dot:'#1D9E75',init:'גל',calCls:'vt-gal'}
 ];
 const DAYS=[
@@ -503,11 +503,21 @@ const SICK_TABLE = 'sick_log';
 let editMode=false, subs=[], subsRows=[], schedule={}, constraints={}, varData={}, weekOff=0, openCell=null, openVarDay=null, currentUser=null;
 let weekPublished=true;
 let sickLog=[];
+let satCarryIn={}; // wid -> true אם עבד/ה בשבת של השבוע הקודם (רלוונטי לעובדים ששבועם מתחיל בשבת)
 function addDays(dateStrVal, n){
   const [y,m,d] = dateStrVal.split('-').map(Number);
   const dt = new Date(y, m-1, d);
   dt.setDate(dt.getDate()+n);
   return dateStr(dt);
+}
+async function loadSatCarryIn(){
+  satCarryIn={};
+  const satAnchored=WORKERS.filter(w=>w.weekAnchor==='sat');
+  if(!satAnchored.length) return;
+  try{
+    const rows=await restFetch(SHIFT_TABLE,'GET',`?week_start=eq.${weekKey(weekOff-1)}&shift_id=eq.sat&select=worker_id`);
+    (rows||[]).forEach(r=>{ if(satAnchored.find(w=>w.id===r.worker_id)) satCarryIn[r.worker_id]=true; });
+  }catch(e){}
 }
 let selectedWorker=null, requests=[], calYear=new Date().getFullYear(), calMonth=new Date().getMonth();
 let syncStatus='';
@@ -788,7 +798,7 @@ async function loadFromServer() {
   }
 
   // Requests + subs are global tables — load independently of the week
-  await Promise.all([loadRequests(), loadSubs(), loadPublishStatus(), loadSickLog()]);
+  await Promise.all([loadRequests(), loadSubs(), loadPublishStatus(), loadSickLog(), loadSatCarryIn()]);
   localStorage.setItem('scheduleData', JSON.stringify({schedule,constraints,varData,subs,requests}));
   setSyncStatus('synced');
 
@@ -877,9 +887,12 @@ function constraintsLocked(off){ return getTrustedNow() > constraintsDeadline(of
 function chgWk(d){weekOff+=d;openCell=null;openVarDay=null;updateWeekLabels();loadFromServer();}
 function workerCount(wid){
   let t=0;
+  const w=WORKERS.find(x=>x.id===wid);
+  const satAnchored=w && w.weekAnchor==='sat';
   // count regular shifts only on days with no var entry
   SHIFTS.forEach(s=>s.days.forEach(di=>{
     if(schedule[sk(s.id,di)]===wid){
+      if(satAnchored && s.id==='sat') return; // אצלה, שבת של השבוע הזה שייכת לספירת השבוע הבא, לא לכאן
       const varEntries=getVarDay(di);
       const hasVar=varEntries.find(e=>e.wid===wid);
       if(!hasVar) t++;
@@ -890,6 +903,7 @@ function workerCount(wid){
     const entries=getVarDay(di);
     if(entries.find(e=>e.wid===wid)) t++;
   });
+  if(satAnchored && satCarryIn[wid]) t++; // השבת של השבוע הקודם נכנסת לספירה של השבוע הזה אצלה
   // מחלה וחופש נספרים כמשמרת (לא כחוסר) — יום אחד לכל היותר לכל יום בשבוע
   const weekStart=getWeekStart(weekOff);
   const curWeekKey=weekKey(weekOff);
