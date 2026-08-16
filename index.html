@@ -444,14 +444,16 @@ async function sendReplyEmail(req,status) {
   const w=WORKERS.find(x=>x.id===req.wid);
   const workerEmail=WORKER_EMAILS[req.wid];
   if(!workerEmail)return;
+  const statusText = status==='approved'?'אושרה ✓' : status==='cancelled'?'בוטלה (אושרה בעבר, כעת מבוטלת)':'נדחתה ✕';
+  const statusColor = status==='approved'?'#0F6E56' : status==='cancelled'?'#6B7280':'#A32D2D';
   try {
     await emailjs.send(EJS_SERVICE, EJS_TEMPLATE_REPLY, {
       worker_name: w.name,
       worker_email: workerEmail,
       from_date: fmtDate(req.from),
       to_date: fmtDate(req.to),
-      status: status==='approved'?'אושרה ✓':'נדחתה ✕',
-      status_color: status==='approved'?'#0F6E56':'#A32D2D',
+      status: statusText,
+      status_color: statusColor,
       to_email: workerEmail
     });
   } catch(e){console.log('email err',e);}
@@ -1278,7 +1280,7 @@ async function submitRequest(){
 function renderMyRequests(){
   const el=document.getElementById('my-requests-list');const mine=requests.filter(r=>r.wid===selectedWorker).sort((a,b)=>reqSortKey(b)-reqSortKey(a));
   if(!mine.length){el.innerHTML=`<div class="empty-state">אין בקשות עדיין</div>`;return;}
-  const sLbl={pending:'ממתין לאישור',approved:'אושר ✓',rejected:'נדחה'};const sCls={pending:'status-pending',approved:'status-approved',rejected:'status-rejected'};
+  const sLbl={pending:'ממתין לאישור',approved:'אושר ✓',rejected:'נדחה',cancelled:'האישור בוטל'};const sCls={pending:'status-pending',approved:'status-approved',rejected:'status-rejected',cancelled:'status-rejected'};
   el.innerHTML=mine.map(r=>`<div class="req-card"><div><div class="req-dates">${fmtRange(r.from,r.to)}</div>${r.note?`<div class="req-note">${r.note}</div>`:''}</div><span class="status-pill ${sCls[r.status]}">${sLbl[r.status]}</span></div>`).join('');
 }
 
@@ -1289,7 +1291,7 @@ function renderManagerTab(){
   document.getElementById('pending-list').innerHTML=!pending.length?`<div class="empty-state"><i class="ti ti-check" style="font-size:22px;display:block;margin-bottom:6px;color:#0F6E56"></i>אין בקשות ממתינות</div>`:pending.map(r=>mgrCard(r,true)).join('');
   document.getElementById('history-list').innerHTML=!history.length?`<div style="font-size:12px;color:var(--text-muted)">אין היסטוריה</div>`:history.map(r=>mgrCard(r,false)).join('');
 }
-function mgrCard(r,showActions){const w=WORKERS.find(x=>x.id===r.wid);const sLbl={pending:'ממתין',approved:'אושר',rejected:'נדחה'};const sCls={pending:'status-pending',approved:'status-approved',rejected:'status-rejected'};const idJs=typeof r.id==='number'?r.id:`'${r.id}'`;return `<div class="mgr-req-card"><div class="mgr-req-top"><div class="avatar ${w.avcls}">${w.init}</div><span class="mgr-req-name">${w.name}</span><span style="font-size:12px;color:var(--text-muted)">${fmtRange(r.from,r.to)}</span>${!showActions?`<span class="status-pill ${sCls[r.status]}">${sLbl[r.status]}</span>`:''}</div>${r.note?`<div style="font-size:11px;color:var(--text-muted);margin-bottom:6px">${r.note}</div>`:''}${typeof r.id!=='number'?`<div style="font-size:11px;color:#A32D2D;margin-bottom:6px">⚠️ בקשה זו לא סונכרנה עדיין עם השרת (נשלחה ללא חיבור) — תסונכרן אוטומטית בפעולה הבאה</div>`:''}${showActions?`<div class="mgr-req-actions"><button class="btn btn-approve btn-sm" onclick="decideRequest(${idJs},'approved')"><i class="ti ti-check"></i>אשר</button><button class="btn btn-reject btn-sm" onclick="decideRequest(${idJs},'rejected')"><i class="ti ti-x"></i>דחה</button></div>`:`<button class="btn btn-sm" style="color:var(--text-muted)" onclick="deleteRequest(${idJs})" title="מחק לצמיתות"><i class="ti ti-trash"></i></button>`}</div>`;}
+function mgrCard(r,showActions){const w=WORKERS.find(x=>x.id===r.wid);const sLbl={pending:'ממתין',approved:'אושר',rejected:'נדחה',cancelled:'בוטל'};const sCls={pending:'status-pending',approved:'status-approved',rejected:'status-rejected',cancelled:'status-rejected'};const idJs=typeof r.id==='number'?r.id:`'${r.id}'`;return `<div class="mgr-req-card"><div class="mgr-req-top"><div class="avatar ${w.avcls}">${w.init}</div><span class="mgr-req-name">${w.name}</span><span style="font-size:12px;color:var(--text-muted)">${fmtRange(r.from,r.to)}</span>${!showActions?`<span class="status-pill ${sCls[r.status]}">${sLbl[r.status]}</span>`:''}</div>${r.note?`<div style="font-size:11px;color:var(--text-muted);margin-bottom:6px">${r.note}</div>`:''}${typeof r.id!=='number'?`<div style="font-size:11px;color:#A32D2D;margin-bottom:6px">⚠️ בקשה זו לא סונכרנה עדיין עם השרת (נשלחה ללא חיבור) — תסונכרן אוטומטית בפעולה הבאה</div>`:''}${showActions?`<div class="mgr-req-actions"><button class="btn btn-approve btn-sm" onclick="decideRequest(${idJs},'approved')"><i class="ti ti-check"></i>אשר</button><button class="btn btn-reject btn-sm" onclick="decideRequest(${idJs},'rejected')"><i class="ti ti-x"></i>דחה</button></div>`:`<div style="display:flex;gap:6px">${r.status==='approved'?`<button class="btn btn-sm" style="color:#A32D2D" onclick="cancelApproval(${idJs})" title="בטל אישור ושלח מייל"><i class="ti ti-rotate-2"></i>בטל אישור</button>`:''}<button class="btn btn-sm" style="color:var(--text-muted)" onclick="deleteRequest(${idJs})" title="מחק לצמיתות"><i class="ti ti-trash"></i></button></div>`}</div>`;}
 async function decideRequest(id,status){
   if(currentUser!=='manager'){ showToast('פעולה זו מיועדת למנהל בלבד'); return; }
   const r=requests.find(x=>x.id===id);if(!r)return;
@@ -1310,6 +1312,21 @@ async function decideRequest(id,status){
   }catch(e){setSyncStatus('offline');}
   await sendReplyEmail(r,status);
   showToast(status==='approved'?`✓ חופש ${w.name} אושר — מייל נשלח`:`✕ בקשת ${w.name} נדחתה — מייל נשלח`);
+  setSyncStatus('synced');renderManagerTab();updatePendingBadge();renderCalendar();
+}
+async function cancelApproval(id){
+  if(currentUser!=='manager'){ showToast('פעולה זו מיועדת למנהל בלבד'); return; }
+  const r=requests.find(x=>x.id===id);if(!r)return;
+  const w=WORKERS.find(x=>x.id===r.wid) || {name:r.wid};
+  if(!confirm(`לבטל את אישור החופשה של ${w.name} (${fmtRange(r.from,r.to)})? יישלח מייל עדכון ל${w.name}.`)) return;
+  r.status='cancelled';
+  setSyncStatus('syncing');
+  saveLocal();
+  try{
+    if(typeof r.id==='number') await patchRequestStatus(r.id,'cancelled');
+  }catch(e){setSyncStatus('offline');}
+  await sendReplyEmail(r,'cancelled');
+  showToast(`✕ אישור החופשה של ${w.name} בוטל — מייל נשלח`);
   setSyncStatus('synced');renderManagerTab();updatePendingBadge();renderCalendar();
 }
 
