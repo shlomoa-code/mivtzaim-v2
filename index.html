@@ -205,17 +205,16 @@ body{background:var(--bg);color:var(--text-primary);font-family:var(--font-sans)
   <div class="tabs">
     <button class="tab active" onclick="swTab('schedule',this)"><i class="ti ti-calendar-week"></i>סידור שבועי</button>
     <button class="tab" onclick="swTab('myconstraints',this)"><i class="ti ti-adjustments"></i>האילוצים שלי</button>
-    <button class="tab" onclick="swTab('constraints-weekly',this)"><i class="ti ti-table"></i>אילוצים שבועיים</button>
-    <button class="tab" onclick="swTab('requests',this)"><i class="ti ti-beach"></i>בקשת חופש</button>
+    <button class="tab" onclick="swTab('requests',this)"><i class="ti ti-beach"></i>בקשת חופש/מחלה</button>
     <button class="tab" onclick="swTab('manager',this)" id="mgr-tab"><i class="ti ti-clipboard-check"></i>אישור מנהל <span class="badge-count" id="pending-badge" style="display:none">0</span></button>
-    <button class="tab" onclick="swTab('calendar',this)"><i class="ti ti-calendar-month"></i>לוח חופשות</button>
+    <button class="tab" onclick="swTab('calendar',this)"><i class="ti ti-calendar-month"></i>לוח חופשות ומחלות</button>
   </div>
 
   <!-- SCHEDULE -->
   <div id="tab-schedule">
     <div class="topbar">
       <div style="display:flex;align-items:center;gap:1rem;flex:1">
-        <div class="page-title"><i class="ti ti-calendar-week"></i>סידור עבודה</div>
+        <div class="page-title"><span style="display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:50%;background:#E24B4A;color:#fff;margin-left:6px"><i class="ti ti-calendar-week" style="font-size:16px"></i></span>סידור עבודה</div>
         <div class="controls">
           <span id="mode-badge"></span>
           <button id="toggle-btn" class="btn" onclick="toggleEdit()"></button>
@@ -261,10 +260,10 @@ body{background:var(--bg);color:var(--text-primary);font-family:var(--font-sans)
 
   <!-- MY CONSTRAINTS -->
   <div id="tab-myconstraints" style="display:none">
-    <div style="background:var(--surface-2);border:0.5px solid var(--border);border-radius:12px;padding:0.75rem;margin-bottom:1rem;text-align:center;font-size:13px;font-weight:600;color:var(--text-primary)">
+    <div style="background:#E8F0FE;border:0.5px solid #0B4CB8;border-radius:12px;padding:0.75rem;margin-bottom:1rem;text-align:center;font-size:13px;font-weight:600;color:#0B4CB8">
       📅 שבוע: <span id="week-label-myconstraints"></span>
     </div>
-      <div class="page-title" style="margin-bottom:0"><i class="ti ti-adjustments"></i>האילוצים שלי</div>
+      <div class="page-title" style="margin-bottom:0"><span style="display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:50%;background:#0B4CB8;color:#fff;margin-left:6px"><i class="ti ti-adjustments" style="font-size:16px"></i></span>האילוצים שלי</div>
       <svg class="topbar-logo" viewBox="0 0 560 560" xmlns="http://www.w3.org/2000/svg"><rect width="560" height="560" fill="#E24B4A" rx="80"/><text x="280" y="260" text-anchor="middle" font-size="100" font-weight="700" fill="#FFFFFF" font-family="Arial, sans-serif">מבצעים</text><g transform="translate(280, 420)"><circle cx="0" cy="0" r="32" fill="none" stroke="#FFFFFF" stroke-width="4"/><circle cx="0" cy="0" r="20" fill="none" stroke="#FFFFFF" stroke-width="4"/><circle cx="0" cy="0" r="8" fill="#FFFFFF"/></g></svg>
     </div>
     <div style="font-size:12px;color:var(--text-muted);margin-bottom:.75rem">בחר את שמך וסמן את המשמרות שאתה לא יכול השבוע:</div>
@@ -292,14 +291,19 @@ body{background:var(--bg);color:var(--text-primary);font-family:var(--font-sans)
       <div style="font-size:12px;color:var(--text-muted);margin-bottom:.75rem">לצפייה בלבד — כל אחד יכול לראות מה כולם רשמו. ירוק = יכול, אדום = לא יכול, כחול = חופש תמורה.</div>
       <div id="all-constraints-board"></div>
     </div>
+    <div style="background:var(--surface-2);border:0.5px solid var(--border);border-radius:12px;padding:1rem;margin-top:1rem">
+      <div class="panel-title" style="margin-bottom:.5rem"><i class="ti ti-table"></i>טבלה שבועית מלאה</div>
+      <div style="font-size:12px;color:var(--text-muted);margin-bottom:.75rem">💡 כל שורה = עובד | כל עמודה = משמרת בשבוע | <span style="display:inline-block;width:12px;height:12px;background:#E1F5EE;border-radius:2px;margin:0 4px;vertical-align:middle"></span> יכול | <span style="display:inline-block;width:12px;height:12px;background:#FCEBEB;border-radius:2px;margin:0 4px;vertical-align:middle"></span> לא יכול | <span style="display:inline-block;width:12px;height:12px;background:#E8F5FF;border-radius:2px;margin:0 4px;vertical-align:middle"></span> חופש תמורה</div>
+      <div id="constraints-table-area" style="overflow-x:auto"></div>
+    </div>
   </div>
 
   <!-- REQUESTS -->
   <div id="tab-requests" style="display:none">
-    <div style="background:var(--surface-2);border:0.5px solid var(--border);border-radius:12px;padding:0.75rem;margin-bottom:1rem;text-align:center;font-size:13px;font-weight:600;color:var(--text-primary)">
+    <div style="background:#FFF3CD;border:0.5px solid #F0AD4E;border-radius:12px;padding:0.75rem;margin-bottom:1rem;text-align:center;font-size:13px;font-weight:600;color:#8A5A00">
       📅 שבוע: <span id="week-label-requests"></span>
     </div>
-      <div class="page-title" style="margin-bottom:0"><i class="ti ti-beach"></i>בקשת חופש</div>
+      <div class="page-title" style="margin-bottom:0"><span style="display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:50%;background:#F0AD4E;color:#fff;margin-left:6px"><i class="ti ti-beach" style="font-size:16px"></i></span>בקשת חופש/מחלה</div>
       <svg class="topbar-logo" viewBox="0 0 560 560" xmlns="http://www.w3.org/2000/svg"><rect width="560" height="560" fill="#E24B4A" rx="80"/><text x="280" y="260" text-anchor="middle" font-size="100" font-weight="700" fill="#FFFFFF" font-family="Arial, sans-serif">מבצעים</text><g transform="translate(280, 420)"><circle cx="0" cy="0" r="32" fill="none" stroke="#FFFFFF" stroke-width="4"/><circle cx="0" cy="0" r="20" fill="none" stroke="#FFFFFF" stroke-width="4"/><circle cx="0" cy="0" r="8" fill="#FFFFFF"/></g></svg>
     </div>
     <div style="font-size:12px;color:var(--text-muted);margin-bottom:.75rem">בחר את שמך:</div>
@@ -333,10 +337,10 @@ body{background:var(--bg);color:var(--text-primary);font-family:var(--font-sans)
 
   <!-- MANAGER -->
   <div id="tab-manager" style="display:none">
-    <div style="background:var(--surface-2);border:0.5px solid var(--border);border-radius:12px;padding:0.75rem;margin-bottom:1rem;text-align:center;font-size:13px;font-weight:600;color:var(--text-primary)">
+    <div style="background:#FBE7E7;border:0.5px solid #A32D2D;border-radius:12px;padding:0.75rem;margin-bottom:1rem;text-align:center;font-size:13px;font-weight:600;color:#A32D2D">
       📅 שבוע: <span id="week-label-manager"></span>
     </div>
-      <div class="page-title" style="margin-bottom:0"><i class="ti ti-clipboard-check"></i>ניהול בקשות חופש</div>
+      <div class="page-title" style="margin-bottom:0"><span style="display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:50%;background:#A32D2D;color:#fff;margin-left:6px"><i class="ti ti-clipboard-check" style="font-size:16px"></i></span>ניהול בקשות חופש</div>
       <svg class="topbar-logo" viewBox="0 0 560 560" xmlns="http://www.w3.org/2000/svg"><rect width="560" height="560" fill="#E24B4A" rx="80"/><text x="280" y="260" text-anchor="middle" font-size="100" font-weight="700" fill="#FFFFFF" font-family="Arial, sans-serif">מבצעים</text><g transform="translate(280, 420)"><circle cx="0" cy="0" r="32" fill="none" stroke="#FFFFFF" stroke-width="4"/><circle cx="0" cy="0" r="20" fill="none" stroke="#FFFFFF" stroke-width="4"/><circle cx="0" cy="0" r="8" fill="#FFFFFF"/></g></svg>
     </div>
     <div id="pending-list"></div>
@@ -344,24 +348,10 @@ body{background:var(--bg);color:var(--text-primary);font-family:var(--font-sans)
     <div id="history-list"></div>
   </div>
 
-  <!-- WEEKLY CONSTRAINTS TABLE -->
-  <div id="tab-constraints-weekly" style="display:none">
-    <div style="background:var(--surface-2);border:0.5px solid var(--border);border-radius:12px;padding:0.75rem;margin-bottom:1rem;text-align:center;font-size:13px;font-weight:600;color:var(--text-primary)">
-      📅 שבוע: <span id="week-label-constraints-weekly"></span>
-    </div>
-      <div class="page-title" style="margin-bottom:0"><i class="ti ti-table"></i>אילוצים שבועיים</div>
-      <svg class="topbar-logo" viewBox="0 0 560 560" xmlns="http://www.w3.org/2000/svg"><rect width="560" height="560" fill="#E24B4A" rx="80"/><text x="280" y="260" text-anchor="middle" font-size="100" font-weight="700" fill="#FFFFFF" font-family="Arial, sans-serif">מבצעים</text><g transform="translate(280, 420)"><circle cx="0" cy="0" r="32" fill="none" stroke="#FFFFFF" stroke-width="4"/><circle cx="0" cy="0" r="20" fill="none" stroke="#FFFFFF" stroke-width="4"/><circle cx="0" cy="0" r="8" fill="#FFFFFF"/></g></svg>
-    </div>
-    <div style="font-size:12px;color:var(--text-muted);margin-bottom:1rem;padding:0.75rem;background:var(--surface-0);border-radius:8px;border:0.5px solid var(--border)">
-      💡 כל שורה = עובד | כל עמודה = משמרת בשבוע | <span style="display:inline-block;width:12px;height:12px;background:#E1F5EE;border-radius:2px;margin:0 4px;vertical-align:middle"></span> יכול | <span style="display:inline-block;width:12px;height:12px;background:#FCEBEB;border-radius:2px;margin:0 4px;vertical-align:middle"></span> לא יכול | <span style="display:inline-block;width:12px;height:12px;background:#E8F5FF;border-radius:2px;margin:0 4px;vertical-align:middle"></span> חופש תמורה
-    </div>
-    <div id="constraints-table-area" style="overflow-x:auto"></div>
-  </div>
-
   <!-- CALENDAR -->
   <div id="tab-calendar" style="display:none">
     <div class="cal-top">
-      <div class="page-title"><i class="ti ti-calendar-month"></i>לוח חופשות מאושרות</div>
+      <div class="page-title"><span style="display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:50%;background:#7C3AED;color:#fff;margin-left:6px"><i class="ti ti-calendar-month" style="font-size:16px"></i></span>לוח חופשות ומחלות מאושרות</div>
       <div style="display:flex;align-items:center;gap:6px;margin-right:auto;margin-left:0">
         <button class="btn btn-sm" onclick="chgMonth(-1)"><i class="ti ti-chevron-right"></i></button>
         <span class="cal-month-lbl" id="cal-month-lbl"></span>
@@ -484,8 +474,7 @@ async function refreshAll(){
   await loadFromServer(); // מרענן סידור שבועי + אילוצים + משתנה + בקשות + ממלאי מקום + פרסום, לשבוע הנוכחי
   if(activeTab==='manager') renderManagerTab();
   if(activeTab==='requests') renderRequestsTab();
-  if(activeTab==='myconstraints') renderMyConstraintsTab();
-  if(activeTab==='constraints-weekly') renderConstraintsWeekly();
+  if(activeTab==='myconstraints'){ renderMyConstraintsTab(); renderConstraintsWeekly(); }
 }
 function setupRealtime(){
   if(!sb) return;
@@ -951,7 +940,7 @@ function updatePendingBadge(){const n=pendingCount();const b=document.getElement
 // ── UPDATE WEEK LABELS ──
 function updateWeekLabels(){
   const weekLabel=fmtWeek(getWeekStart(weekOff));
-  ['myconstraints','requests','manager','constraints-weekly'].forEach(tab=>{
+  ['myconstraints','requests','manager'].forEach(tab=>{
     const el=document.getElementById('week-label-'+tab);
     if(el)el.textContent=weekLabel;
   });
@@ -962,14 +951,13 @@ function swTab(tab,el){
   activeTab=tab;
   document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
   el.classList.add('active');
-  ['schedule','myconstraints','constraints-weekly','requests','manager','calendar'].forEach(t=>{
+  ['schedule','myconstraints','requests','manager','calendar'].forEach(t=>{
     document.getElementById('tab-'+t).style.display=t===tab?'block':'none';
   });
   updateWeekLabels();
   if(tab==='requests'){ renderRequestsTab(); loadRequests().then(()=>{renderRequestsTab();updatePendingBadge();}); }
   if(tab==='manager'){ loadRequests().then(()=>{renderManagerTab();updatePendingBadge();}); renderManagerTab(); }
-  if(tab==='myconstraints')renderMyConstraintsTab();
-  if(tab==='constraints-weekly')renderConstraintsWeekly();
+  if(tab==='myconstraints'){ renderMyConstraintsTab(); renderConstraintsWeekly(); }
   if(tab==='calendar'){ renderCalendar(); Promise.all([loadRequests(),loadSickLog()]).then(renderCalendar); }
   if(tab==='schedule'){openCell=null;openVarDay=null;render();}
 }
