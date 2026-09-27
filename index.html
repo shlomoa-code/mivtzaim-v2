@@ -495,11 +495,14 @@ const SUBS_TABLE = 'subs';
 const PUBLISH_TABLE = 'week_publish';
 const SICK_TABLE = 'sick_log';
 const NOTE_TABLE = 'day_notes';
+const CELL_NOTE_TABLE = 'cell_notes';
 
 let editMode=false, subs=[], subsRows=[], schedule={}, constraints={}, varData={}, weekOff=0, openCell=null, openVarDay=null, currentUser=null;
 let weekPublished=true;
 let sickLog=[];
 let dayNotes={};
+let cellNotes={};
+function ck2(shiftId,di){ return `${shiftId}_${di}`; }
 let satCarryIn={}; // wid -> true אם עבד/ה בשבת של השבוע הקודם (רלוונטי לעובדים ששבועם מתחיל בשבת)
 function addDays(dateStrVal, n){
   const [y,m,d] = dateStrVal.split('-').map(Number);
@@ -663,7 +666,7 @@ async function loadSickLog(){
   } catch(e) { /* keep whatever was already loaded */ }
 }
 
-// ── DAY NOTES (per-day free text, e.g. "יום הבחירות — שעות מיוחדות 07:00–20:00") ──
+// ── DAY TITLE (whole-day banner, e.g. "יום הבחירות" / "חג") ──
 async function loadDayNotes(){
   try {
     const wStart = weekKey(weekOff);
@@ -683,14 +686,48 @@ async function persistDayNote(di, note){
   } catch(e) { console.error('day note save failed', e); }
 }
 async function editDayNote(di){
-  if(currentUser!=='manager'){ showToast('הוספת הערה ליום מיועדת למנהל בלבד'); return; }
+  if(currentUser!=='manager'){ showToast('הוספת כותרת ליום מיועדת למנהל בלבד'); return; }
   const day=DAYS[di];
   const current=dayNotes[di]||'';
-  const val=prompt(`הערה ליום ${day.label} (למשל: שעות מיוחדות ביום הבחירות). השאר ריק כדי למחוק:`, current);
+  const val=prompt(`כותרת ליום ${day.label} (למשל: "יום הבחירות" או "חג"). מוצג לכולם מעל הסידור. השאר ריק כדי למחוק:`, current);
   if(val===null) return; // cancelled
   if(val.trim()){ dayNotes[di]=val.trim(); } else { delete dayNotes[di]; }
   render();
   await persistDayNote(di, val);
+}
+
+// ── CELL NOTES (per shift+day, e.g. "תוג'אן: 07:00–14:00 היום") ──
+async function loadCellNotes(){
+  try {
+    const wStart = weekKey(weekOff);
+    const rows = await restFetch(CELL_NOTE_TABLE, 'GET', `?week_start=eq.${wStart}&select=*`);
+    cellNotes = {};
+    (rows||[]).forEach(r => { cellNotes[ck2(r.shift_id, r.day_index)] = r.note; });
+  } catch(e) { /* keep whatever was already loaded */ }
+}
+async function persistCellNote(shiftId, di, note){
+  const wStart = weekKey(weekOff);
+  try {
+    if (note && note.trim()){
+      await restFetch(CELL_NOTE_TABLE, 'POST', '?on_conflict=week_start,shift_id,day_index', {week_start:wStart, shift_id:shiftId, day_index:di, note:note.trim()}, true);
+    } else {
+      await restFetch(CELL_NOTE_TABLE, 'DELETE', `?week_start=eq.${wStart}&shift_id=eq.${shiftId}&day_index=eq.${di}`);
+    }
+  } catch(e) { console.error('cell note save failed', e); }
+}
+async function editCellNote(shiftId, di){
+  if(currentUser!=='manager'){ showToast('הוספת הערה למשבצת מיועדת למנהל בלבד'); return; }
+  const day=DAYS[di];
+  const shift=SHIFTS.find(s=>s.id===shiftId);
+  const wid=schedule[sk(shiftId,di)];
+  const wname=WORKERS.find(w=>w.id===wid)?.name || wid || '';
+  const key=ck2(shiftId,di);
+  const current=cellNotes[key]||'';
+  const val=prompt(`הערה למשבצת ${wname?wname+' — ':''}${day.label} ${shift?shift.label:''} (למשל: שעות מיוחדות 07:00–14:00). השאר ריק כדי למחוק:`, current);
+  if(val===null) return; // cancelled
+  if(val.trim()){ cellNotes[key]=val.trim(); } else { delete cellNotes[key]; }
+  render();
+  await persistCellNote(shiftId, di, val);
 }
 
 // ── PUBLISH / DRAFT STATUS (per week_start date, global table) ──
@@ -825,7 +862,7 @@ async function loadFromServer() {
   }
 
   // Requests + subs are global tables — load independently of the week
-  await Promise.all([loadRequests(), loadSubs(), loadPublishStatus(), loadSickLog(), loadSatCarryIn(), loadDayNotes()]);
+  await Promise.all([loadRequests(), loadSubs(), loadPublishStatus(), loadSickLog(), loadSatCarryIn(), loadDayNotes(), loadCellNotes()]);
   localStorage.setItem('scheduleData', JSON.stringify({schedule,constraints,varData,subs,requests}));
   setSyncStatus('synced');
 
@@ -1061,15 +1098,15 @@ function renderWarn(){
   document.getElementById('warn-area').innerHTML=vacHTML+shiftHTML;
 }
 function escHtml(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
-function cellNoteTag(di){
-  const note=dayNotes[di];
+function cellNoteTag(shiftId,di){
+  const note=cellNotes[ck2(shiftId,di)];
   const canEdit=editMode&&currentUser==='manager';
   if(!note){
     if(!canEdit)return '';
-    return `<span class="cell-note-tag" title="הוסף הערה ליום זה" onclick="event.stopPropagation();editDayNote(${di})">➕</span>`;
+    return `<span class="cell-note-tag" title="הוסף הערה למשבצת (למשל שעות מיוחדות)" onclick="event.stopPropagation();editCellNote('${shiftId}',${di})">➕</span>`;
   }
   if(canEdit){
-    return `<span class="cell-note-tag" title="${escHtml(note)} — לחץ לעריכה" onclick="event.stopPropagation();editDayNote(${di})">📝</span>`;
+    return `<span class="cell-note-tag" title="${escHtml(note)} — לחץ לעריכה" onclick="event.stopPropagation();editCellNote('${shiftId}',${di})">📝</span>`;
   }
   const safe=escHtml(note).replace(/'/g,"\\'");
   return `<span class="cell-note-tag" title="${escHtml(note)}" onclick="event.stopPropagation();alert('${safe}')">📝</span>`;
@@ -1081,13 +1118,13 @@ function renderGrid(){
     return;
   }
   let html=`<div class="g-head"><div class="ghc" style="border-left:none">משמרת</div>${DAYS.map((d,di)=>{
-    const hasNote=!!dayNotes[di];
+    const hasTitle=!!dayNotes[di];
     const canEditNote=editMode&&currentUser==='manager';
     let noteBtn='';
     if(canEditNote){
-      noteBtn=`<span onclick="event.stopPropagation();editDayNote(${di})" title="${hasNote?escHtml(dayNotes[di]):'הוסף הערה ליום'}" style="cursor:pointer;font-size:11px;margin-inline-start:2px">${hasNote?'📝':'➕'}</span>`;
-    } else if(hasNote){
-      noteBtn=`<span title="${escHtml(dayNotes[di])}" style="font-size:11px;margin-inline-start:2px">📝</span>`;
+      noteBtn=`<span onclick="event.stopPropagation();editDayNote(${di})" title="${hasTitle?escHtml(dayNotes[di]):'הוסף כותרת ליום (חג, יום בחירות וכו׳)'}" style="cursor:pointer;font-size:11px;margin-inline-start:2px">${hasTitle?'📌':'➕'}</span>`;
+    } else if(hasTitle){
+      noteBtn=`<span title="${escHtml(dayNotes[di])}" style="font-size:11px;margin-inline-start:2px">📌</span>`;
     }
     return `<div class="ghc">${d.sh}${noteBtn}</div>`;
   }).join('')}</div>`;
@@ -1106,7 +1143,7 @@ function renderGrid(){
       if(!shift.days.includes(di)){html+=`<div class="cell na"></div>`;return;}
       const k=sk(shift.id,di),assigned=schedule[k];
       const vacCls=WORKERS.some(w=>isApprovedVacDay(w.id,weekStart,di))?' vac-day':'';
-      const noteTag=cellNoteTag(di);
+      const noteTag=cellNoteTag(shift.id,di);
       if(assigned){
         const w=WORKERS.find(x=>x.id===assigned);const cls=w?w.acls:'a-sub';const name=w?w.name:assigned;
         html+=`<div class="cell${vacCls}${editMode?' clickable':''}" ${editMode?`onclick="togglePopup('${shift.id}',${di},'${k}')"`:''}><div class="asgn ${cls}">${name}`;
