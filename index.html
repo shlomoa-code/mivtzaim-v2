@@ -1063,7 +1063,14 @@ function renderWarn(){
 function escHtml(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 function cellNoteTag(di){
   const note=dayNotes[di];
-  if(!note)return '';
+  const canEdit=editMode&&currentUser==='manager';
+  if(!note){
+    if(!canEdit)return '';
+    return `<span class="cell-note-tag" title="הוסף הערה ליום זה" onclick="event.stopPropagation();editDayNote(${di})">➕</span>`;
+  }
+  if(canEdit){
+    return `<span class="cell-note-tag" title="${escHtml(note)} — לחץ לעריכה" onclick="event.stopPropagation();editDayNote(${di})">📝</span>`;
+  }
   const safe=escHtml(note).replace(/'/g,"\\'");
   return `<span class="cell-note-tag" title="${escHtml(note)}" onclick="event.stopPropagation();alert('${safe}')">📝</span>`;
 }
