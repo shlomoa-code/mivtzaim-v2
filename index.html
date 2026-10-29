@@ -948,7 +948,7 @@ function constraintsDeadline(off){
   d.setHours(10,0,0,0);
   return d;
 }
-function constraintsLocked(off){ return getTrustedNow() > constraintsDeadline(off); } // שעון שרת, לא שעון המכשיר — כדי שלא ניתן יהיה לעקוף ע"י שינוי שעון מקומי
+function constraintsLocked(off){ if(currentUser==='manager') return false; return getTrustedNow() > constraintsDeadline(off); } // שעון שרת, לא שעון המכשיר — כדי שלא ניתן יהיה לעקוף ע"י שינוי שעון מקומי
 function chgWk(d){weekOff+=d;openCell=null;openVarDay=null;updateWeekLabels();loadFromServer();}
 function workerCount(wid){
   let t=0;
@@ -1212,11 +1212,11 @@ function renderPopup(){
   avail.forEach(w=>{html+=`<button class="pop-opt" onclick="doAssign('${k}','${w.id}')"><span class="dot" style="background:${w.dot||'#888'}"></span>${w.name}</button>`;});
   if(blocked.length){
     html+=`<div style="font-size:11px;color:#A32D2D;margin:5px 0 2px">חסומים — שיבוץ בכוח</div>`;
-    blocked.forEach(w=>{html+=`<button class="pop-opt blocked" onclick="if(confirm('${w.name} חסום/ה למשמרת זו. לשבץ בכל זאת?'))doAssign('${k}','${w.id}')"><span class="dot" style="background:#E24B4A"></span>${w.name}</button>`;});
+    blocked.forEach(w=>{html+=`<button class="pop-opt blocked" onclick="forceAssign('${k}','${w.id}','blocked')"><span class="dot" style="background:#E24B4A"></span>${w.name}</button>`;});
   }
   if(onVac.length){
     html+=`<div style="font-size:11px;color:#0B4CB8;margin:5px 0 2px">בחופש מאושר — שיבוץ בכוח</div>`;
-    onVac.forEach(w=>{html+=`<button class="pop-opt blocked" onclick="if(confirm('${w.name} בחופש מאושר בתאריך זה. לשבץ בכל זאת?'))doAssign('${k}','${w.id}')"><span class="dot" style="background:#6DB3F2"></span>${w.name}</button>`;});
+    onVac.forEach(w=>{html+=`<button class="pop-opt blocked" onclick="forceAssign('${k}','${w.id}','vac')"><span class="dot" style="background:#6DB3F2"></span>${w.name}</button>`;});
   }
   html+=`</div>`;
   document.getElementById('cell-popup').innerHTML=html;
@@ -1234,6 +1234,11 @@ async function markSick(k){
   try{
     await restFetch(SICK_TABLE,'POST','',{week_start:weekKey(weekOff), shift_id:shiftId, day_index:dayIndex, worker_id:wid});
   }catch(e){ console.error('sick log failed', e); }
+}
+function forceAssign(k,wid,why){
+  const w=WORKERS.find(x=>x.id===wid)||{name:wid};
+  const msg= why==='vac' ? `${w.name} בחופש מאושר בתאריך זה. לשבץ בכל זאת?` : `${w.name} חסום/ה למשמרת זו. לשבץ בכל זאת?`;
+  if(confirm(msg)) doAssign(k,wid);
 }
 function doAssign(k,wid){
   const sid=openCell?openCell.sid:null, di=openCell?openCell.di:null;
