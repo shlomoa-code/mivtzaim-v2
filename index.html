@@ -314,6 +314,7 @@ body{background:var(--bg);color:var(--text-primary);font-family:var(--font-sans)
         <div class="form-row" style="gap:8px">
           <button type="button" class="btn btn-sm" id="req-type-vacation" onclick="setReqType('vacation')" style="flex:1">🏖️ חופשה</button>
           <button type="button" class="btn btn-sm" id="req-type-sick" onclick="setReqType('sick')" style="flex:1">🤒 מחלה מתוכננת</button>
+          <button type="button" class="btn btn-sm" id="req-type-reserve" onclick="setReqType('reserve')" style="flex:1">🎖️ מילואים</button>
         </div>
         <div class="form-row">
           <span class="form-lbl">מתאריך</span>
@@ -423,13 +424,13 @@ const MANAGER_EMAIL = 'shlomoa@kan.org.il';
 
 async function sendRequestEmail(req) {
   const w=WORKERS.find(x=>x.id===req.wid);
-  const typeLabel = req.reqType==='sick' ? 'מחלה מתוכננת 🤒' : 'חופשה 🏖️';
+  const typeLabel = req.reqType==='sick' ? 'מחלה מתוכננת 🤒' : (req.reqType==='reserve' ? 'מילואים 🎖️' : 'חופשה 🏖️');
   try {
     await emailjs.send(EJS_SERVICE, EJS_TEMPLATE_REQUEST, {
       worker_name: w.name,
       from_date: fmtDate(req.from),
       to_date: fmtDate(req.to),
-      note: (req.reqType==='sick'?`[${typeLabel}] `:'')+(req.note||'—'),
+      note: (req.reqType==='sick'||req.reqType==='reserve'?`[${typeLabel}] `:'')+(req.note||'—'),
       to_email: MANAGER_EMAIL
     });
   } catch(e){console.log('email err',e);}
@@ -1352,9 +1353,10 @@ function selectWorker(wid){
 let newReqType='vacation';
 function setReqType(t){
   newReqType=t;
-  const vBtn=document.getElementById('req-type-vacation'), sBtn=document.getElementById('req-type-sick');
+  const vBtn=document.getElementById('req-type-vacation'), sBtn=document.getElementById('req-type-sick'), rBtn=document.getElementById('req-type-reserve');
   if(vBtn) vBtn.style.cssText = t==='vacation' ? 'flex:1;background:#E24B4A;color:#fff;border-color:#E24B4A' : 'flex:1';
   if(sBtn) sBtn.style.cssText = t==='sick' ? 'flex:1;background:#6D28D9;color:#fff;border-color:#6D28D9' : 'flex:1';
+  if(rBtn) rBtn.style.cssText = t==='reserve' ? 'flex:1;background:#4D6B2F;color:#fff;border-color:#4D6B2F' : 'flex:1';
   const lbl=document.getElementById('req-note-lbl'), note=document.getElementById('req-note'), hint=document.getElementById('req-note-hint');
   if(t==='sick'){
     if(lbl) lbl.textContent='סיבת המחלה המתוכננת *';
@@ -1406,7 +1408,7 @@ function renderMyRequests(){
   const el=document.getElementById('my-requests-list');const mine=requests.filter(r=>r.wid===selectedWorker).sort((a,b)=>reqSortKey(b)-reqSortKey(a));
   if(!mine.length){el.innerHTML=`<div class="empty-state">אין בקשות עדיין</div>`;return;}
   const sLbl={pending:'ממתין לאישור',approved:'אושר ✓',rejected:'נדחה',cancelled:'האישור בוטל'};const sCls={pending:'status-pending',approved:'status-approved',rejected:'status-rejected',cancelled:'status-rejected'};
-  el.innerHTML=mine.map(r=>`<div class="req-card"><div><div class="req-dates">${r.reqType==='sick'?'🤒 ':'🏖️ '}${fmtRange(r.from,r.to)}</div>${r.note?`<div class="req-note">${r.note}</div>`:''}</div><span class="status-pill ${sCls[r.status]}">${sLbl[r.status]}</span></div>`).join('');
+  el.innerHTML=mine.map(r=>`<div class="req-card"><div><div class="req-dates">${r.reqType==='sick'?'🤒 ':(r.reqType==='reserve'?'🎖️ ':'🏖️ ')}${fmtRange(r.from,r.to)}</div>${r.note?`<div class="req-note">${r.note}</div>`:''}</div><span class="status-pill ${sCls[r.status]}">${sLbl[r.status]}</span></div>`).join('');
 }
 
 // ── MANAGER ──
@@ -1416,7 +1418,7 @@ function renderManagerTab(){
   document.getElementById('pending-list').innerHTML=!pending.length?`<div class="empty-state"><i class="ti ti-check" style="font-size:22px;display:block;margin-bottom:6px;color:#0F6E56"></i>אין בקשות ממתינות</div>`:pending.map(r=>mgrCard(r,true)).join('');
   document.getElementById('history-list').innerHTML=!history.length?`<div style="font-size:12px;color:var(--text-muted)">אין היסטוריה</div>`:history.map(r=>mgrCard(r,false)).join('');
 }
-function mgrCard(r,showActions){const w=WORKERS.find(x=>x.id===r.wid);const sLbl={pending:'ממתין',approved:'אושר',rejected:'נדחה',cancelled:'בוטל'};const sCls={pending:'status-pending',approved:'status-approved',rejected:'status-rejected',cancelled:'status-rejected'};const idJs=typeof r.id==='number'?r.id:`'${r.id}'`;const typeIcon=r.reqType==='sick'?'🤒':'🏖️';return `<div class="mgr-req-card"><div class="mgr-req-top"><div class="avatar ${w.avcls}">${w.init}</div><span class="mgr-req-name">${typeIcon} ${w.name}</span><span style="font-size:12px;color:var(--text-muted)">${fmtRange(r.from,r.to)}</span>${!showActions?`<span class="status-pill ${sCls[r.status]}">${sLbl[r.status]}</span>`:''}</div>${r.note?`<div style="font-size:11px;color:var(--text-muted);margin-bottom:6px">${r.note}</div>`:''}${typeof r.id!=='number'?`<div style="font-size:11px;color:#A32D2D;margin-bottom:6px">⚠️ בקשה זו לא סונכרנה עדיין עם השרת (נשלחה ללא חיבור) — תסונכרן אוטומטית בפעולה הבאה</div>`:''}${showActions?`<div class="mgr-req-actions"><button class="btn btn-approve btn-sm" onclick="decideRequest(${idJs},'approved')"><i class="ti ti-check"></i>אשר</button><button class="btn btn-reject btn-sm" onclick="decideRequest(${idJs},'rejected')"><i class="ti ti-x"></i>דחה</button></div>`:`<div style="display:flex;gap:6px">${r.status==='approved'?`<button class="btn btn-sm" style="color:#A32D2D" onclick="cancelApproval(${idJs})" title="בטל אישור ושלח מייל"><i class="ti ti-rotate-2"></i>בטל אישור</button>`:''}<button class="btn btn-sm" style="color:var(--text-muted)" onclick="deleteRequest(${idJs})" title="מחק לצמיתות"><i class="ti ti-trash"></i></button></div>`}</div>`;}
+function mgrCard(r,showActions){const w=WORKERS.find(x=>x.id===r.wid);const sLbl={pending:'ממתין',approved:'אושר',rejected:'נדחה',cancelled:'בוטל'};const sCls={pending:'status-pending',approved:'status-approved',rejected:'status-rejected',cancelled:'status-rejected'};const idJs=typeof r.id==='number'?r.id:`'${r.id}'`;const typeIcon=r.reqType==='sick'?'🤒':(r.reqType==='reserve'?'🎖️':'🏖️');return `<div class="mgr-req-card"><div class="mgr-req-top"><div class="avatar ${w.avcls}">${w.init}</div><span class="mgr-req-name">${typeIcon} ${w.name}</span><span style="font-size:12px;color:var(--text-muted)">${fmtRange(r.from,r.to)}</span>${!showActions?`<span class="status-pill ${sCls[r.status]}">${sLbl[r.status]}</span>`:''}</div>${r.note?`<div style="font-size:11px;color:var(--text-muted);margin-bottom:6px">${r.note}</div>`:''}${typeof r.id!=='number'?`<div style="font-size:11px;color:#A32D2D;margin-bottom:6px">⚠️ בקשה זו לא סונכרנה עדיין עם השרת (נשלחה ללא חיבור) — תסונכרן אוטומטית בפעולה הבאה</div>`:''}${showActions?`<div class="mgr-req-actions"><button class="btn btn-approve btn-sm" onclick="decideRequest(${idJs},'approved')"><i class="ti ti-check"></i>אשר</button><button class="btn btn-reject btn-sm" onclick="decideRequest(${idJs},'rejected')"><i class="ti ti-x"></i>דחה</button></div>`:`<div style="display:flex;gap:6px">${r.status==='approved'?`<button class="btn btn-sm" style="color:#A32D2D" onclick="cancelApproval(${idJs})" title="בטל אישור ושלח מייל"><i class="ti ti-rotate-2"></i>בטל אישור</button>`:''}<button class="btn btn-sm" style="color:var(--text-muted)" onclick="deleteRequest(${idJs})" title="מחק לצמיתות"><i class="ti ti-trash"></i></button></div>`}</div>`;}
 async function decideRequest(id,status){
   if(currentUser!=='manager'){ showToast('פעולה זו מיועדת למנהל בלבד'); return; }
   const r=requests.find(x=>x.id===id);if(!r)return;
@@ -1501,7 +1503,8 @@ function renderCalendar(){
   for(let d=1;d<=daysInMonth;d++){
     const ds=`${calYear}-${String(calMonth+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
     const isToday=ds===todayStr;const approvedToday=requests.filter(r=>r.status==='approved'&&ds>=r.from&&ds<=r.to);
-    const vacs=approvedToday.filter(r=>r.reqType!=='sick');
+    const vacs=approvedToday.filter(r=>r.reqType!=='sick'&&r.reqType!=='reserve');
+    const reserveReqs=approvedToday.filter(r=>r.reqType==='reserve');
     const sickReqs=approvedToday.filter(r=>r.reqType==='sick');
     const uniqueVacs=[];const seenWids=new Set();vacs.forEach(v=>{if(!seenWids.has(v.wid)){uniqueVacs.push(v);seenWids.add(v.wid);}});
     let bg='';
@@ -1515,7 +1518,9 @@ function renderCalendar(){
     const sicksToday=[...sickLog.filter(s=>s.date===ds).map(s=>({wid:s.wid})), ...sickReqs.map(r=>({wid:r.wid}))];
     const uniqueSicks=[];const seenSickWids=new Set();sicksToday.forEach(s=>{if(!seenSickWids.has(s.wid)){uniqueSicks.push(s);seenSickWids.add(s.wid);}});
     const sickTags=uniqueSicks.map(s=>{const w=WORKERS.find(x=>x.id===s.wid);return `<div class="vac-tag-cal" style="background:#F1E6FB;color:#6D28D9">🤒 ${w?.name||s.wid} — מחלה</div>`;}).join('');
-    html+=`<div class="cal-cell${isToday?' today':''}" style="${bg}"><div class="day-num">${d}</div>${tags}${sickTags}</div>`;
+    const reserveWids=[...new Set(reserveReqs.map(r=>r.wid))];
+    const reserveTags=reserveWids.map(wid=>{const w=WORKERS.find(x=>x.id===wid);return `<div class="vac-tag-cal" style="background:#E3EDD3;color:#3B5323">🎖️ ${w?.name||wid} — מילואים</div>`;}).join('');
+    html+=`<div class="cal-cell${isToday?' today':''}" style="${bg}"><div class="day-num">${d}</div>${tags}${sickTags}${reserveTags}</div>`;
   }
   grid.innerHTML=html;
 }
